@@ -542,3 +542,166 @@ async def resolve_alert(id: int, db: AsyncSession = Depends(get_db), current_use
 async def get_events(elder_id: int, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
     res = await db.execute(select(Event).where(Event.elder_id == elder_id).order_by(Event.occurred_at.desc()))
     return res.scalars().all()
+
+
+# --- Merged from Pratham ---
+from app import services
+from fastapi import Request
+from app.models import *
+
+@router.post("/voice/outbound-call", response_model=VoiceCallResponse, tags=["Voice Agent"])
+async def make_outbound_call(
+    call_in: VoiceCallCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await verify_elder_access(call_in.elder_id, current_user, db)
+    return await services.trigger_outbound_voice_call(db, call_in)
+
+@router.post("/voice/outbound", response_model=CallRecordResponse, tags=["Voice Agent"])
+async def make_outbound_call_record(req: OutboundCallRequest, db: AsyncSession = Depends(get_db)):
+    return await services.initiate_call(db, req.elder_id, req.call_type)
+
+@router.post("/voice/webhook", tags=["Voice Agent"])
+async def voice_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    data = await request.json()
+    if "user_speech" in data:
+        req = VoiceWebhookRequest(**data)
+        return await services.process_voice_webhook(db, req)
+    elif "call_id" in data:
+        call_id = data["call_id"]
+        event_type = data.get("event_type")
+        speech_text = data.get("speech_text")
+        return await services.process_voice_webhook(db, call_id, event_type, speech_text)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload")
+
+@router.get("/voice/history/{elder_id}", response_model=List[VoiceCallResponse], tags=["Voice Agent"])
+async def get_call_history(
+    elder_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await verify_elder_access(elder_id, current_user, db)
+    return await services.get_voice_history(db, elder_id)
+
+# --- Caregiver & Family Dashboard Endpoints ---
+@router.get("/dashboard/overview/{elder_id}", response_model=DashboardOverviewResponse, tags=["Caregiver Dashboard"])
+async def get_dashboard_summary(
+    elder_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await verify_elder_access(elder_id, current_user, db)
+    return await services.get_dashboard_overview(db, elder_id)
+
+@router.get("/caregiver/elders", response_model=List[UserResponse], tags=["Caregiver Dashboard"])
+async def get_connected_elders(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role == UserRole.ADMIN:
+        result = await db.execute(select(User).where(User.role == UserRole.ELDER))
+        return result.scalars().all()
+    elif current_user.role in [UserRole.CAREGIVER, UserRole.FAMILY]:
+        result = await db.execute(select(UserRelationship.elder_id).where(UserRelationship.caregiver_id == current_user.id))
+        elder_ids = result.scalars().all()
+        if not elder_ids:
+            return []
+        result = await db.execute(select(User).where(User.id.in_(elder_ids)))
+        return result.scalars().all()
+    return []
+
+@router.get("/alerts/{elder_id}", response_model=List[AlertResponse], tags=["Caregiver Dashboard"])
+async def list_elder_alerts(
+    elder_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await verify_elder_access(elder_id, current_user, db)
+    return await services.get_elder_alerts(db, elder_id)
+
+@router.put("/alerts/{alert_id}/resolve", response_model=AlertResponse, tags=["Caregiver Dashboard"])
+async def resolve_elder_alert(
+    alert_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await services.resolve_alert(db, alert_id)
+
+# --- Relationship Endpoints ---
+@router.post("/relationships", response_model=RelationshipResponse, status_code=status.HTTP_201_CREATED, tags=["Relationships"])
+async def add_relationship(
+    rel_in: RelationshipCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await services.create_relationship(db, rel_in)
+
+@router.post("/conversation", response_model=ConversationResponse, tags=["AI Conversation"])
+async def conversation(
+    req: ConversationRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    return await services.process_ai_conversation(req)
+
+# --- Notification & Device Endpoints ---
+@router.post("/devices/register", response_model=DeviceRegisterResponse, tags=["Notifications"])
+async def register_device(
+    req: DeviceRegisterRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models import UserDevice
+    res = await db.execute(
+        select(UserDevice).where(
+            UserDevice.user_id == current_user.id,
+            UserDevice.push_token == req.push_token,
+        )
+    )
+    device = res.scalar_one_or_none()
+    if not device:
+        device = UserDevice(
+            user_id=current_user.id,
+            push_token=req.push_token,
+            is_active=True,
+            device_type=req.device_type or "android",
+        )
+        db.add(device)
+    else:
+        device.is_active = True
+        device.device_type = req.device_type or device.device_type
+
+    await db.commit()
+    await db.refresh(device)
+    return device
+
+@router.post("/alerts/{alert_id}/acknowledge", response_model=AlertResponse, tags=["Notifications"])
+async def acknowledge_elder_alert(
+    alert_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.notify.policy import acknowledge_alert
+    alert = await acknowledge_alert(db, alert_id, current_user.id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return alert
+
+@router.get("/notifications/outbox", response_model=List[NotificationOutboxResponse], tags=["Notifications"])
+async def get_notification_outbox(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models import Notification
+    res = await db.execute(select(Notification).order_by(Notification.created_at.desc()).limit(100))
+    return res.scalars().all()
+
+@router.post("/notifications/dispatcher/run", tags=["Notifications"])
+async def run_notification_dispatcher(
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.notify.dispatcher import NotificationDispatcher
+    dispatcher = NotificationDispatcher()
+    processed = await dispatcher.process_outbox(db)
+    return {"status": "ok", "processed_count": len(processed)}
