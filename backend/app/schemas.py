@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr, ConfigDict
+import re
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from app.models import UserRole, ActivityType, RelationshipType
@@ -12,22 +13,40 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 4:
+            raise ValueError("Password must be at least 4 characters")
+        return v
+
 class UserResponse(UserBase):
     id: int
     is_active: bool
     model_config = ConfigDict(from_attributes=True)
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
+    username: Optional[str] = None
     password: str
 
 class Token(BaseModel):
     access_token: str
-    refresh_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+class TokenRefreshRequest(BaseModel):
+    refresh_token: str
+
+class OTPRequest(BaseModel):
+    email: EmailStr
+
+class OTPVerify(BaseModel):
+    email: EmailStr
+    code: str
 
 class TokenPayload(BaseModel):
     sub: Optional[str] = None
@@ -110,6 +129,22 @@ class VoiceWebhookResponse(BaseModel):
     ai_reply: str
     action_taken: Optional[str] = None
 
+class OutboundCallRequest(BaseModel):
+    call_type: str
+    elder_id: int
+
+class WebhookPayload(BaseModel):
+    call_id: int
+    event_type: str # started, answered, speech, completed, failed
+    speech_text: Optional[str] = None
+    
+class CallRecordResponse(BaseModel):
+    id: int
+    elder_id: int
+    call_type: str
+    status: str
+    model_config = ConfigDict(from_attributes=True)
+
 # --- Alert Schemas ---
 class AlertResponse(BaseModel):
     id: int
@@ -142,6 +177,32 @@ class ConversationRequest(BaseModel):
 class ConversationResponse(BaseModel):
     reply: str
     timestamp: datetime
+
+# --- Notification & Device Schemas ---
+class DeviceRegisterRequest(BaseModel):
+    push_token: str
+    device_type: Optional[str] = "android"
+
+class DeviceRegisterResponse(BaseModel):
+    id: int
+    user_id: int
+    push_token: str
+    is_active: bool
+    device_type: str
+    model_config = ConfigDict(from_attributes=True)
+
+class NotificationOutboxResponse(BaseModel):
+    id: int
+    alert_id: Optional[int] = None
+    recipient_id: int
+    channel: str
+    status: str
+    attempt_count: int
+    next_attempt_at: datetime
+    provider_message_id: Optional[str] = None
+    last_error: Optional[str] = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
 
 # --- Health Check Schema ---
 class HealthResponse(BaseModel):

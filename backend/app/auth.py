@@ -1,3 +1,4 @@
+import uuid
 import bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Any, Union, List
@@ -11,6 +12,7 @@ from app.database import settings, get_db
 from app.models import User, UserRole, UserRelationship
 from app.schemas import TokenPayload
 
+ALGORITHM = settings.ALGORITHM
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -31,17 +33,20 @@ def create_access_token(subject: Union[str, Any], expires_delta: timedelta = Non
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    secret = getattr(settings, "JWT_SECRET_KEY", None) or settings.SECRET_KEY
     to_encode = {"exp": expire, "sub": str(subject), "type": "access"}
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt.encode(to_encode, secret, algorithm=ALGORITHM)
 
 def create_refresh_token(subject: Union[str, Any]) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES)
-    to_encode = {"exp": expire, "sub": str(subject), "type": "refresh"}
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    secret = getattr(settings, "JWT_SECRET_KEY", None) or settings.SECRET_KEY
+    to_encode = {"exp": expire, "sub": str(subject), "type": "refresh", "jti": str(uuid.uuid4())}
+    return jwt.encode(to_encode, secret, algorithm=ALGORITHM)
 
 def decode_token(token: str) -> TokenPayload:
+    secret = getattr(settings, "JWT_SECRET_KEY", None) or settings.SECRET_KEY
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, secret, algorithms=[ALGORITHM])
         return TokenPayload(**payload)
     except JWTError:
         raise HTTPException(
@@ -53,14 +58,33 @@ def decode_token(token: str) -> TokenPayload:
 async def get_current_user(
     db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme)
 ) -> User:
-    token_data = decode_token(token)
-    if token_data.type != "access":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+    secret = getattr(settings, "JWT_SECRET_KEY", None) or settings.SECRET_KEY
+    try:
+        payload = jwt.decode(token, secret, algorithms=[ALGORITHM])
+        if payload.get("type") == "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Cannot use refresh token as access token",
+            )
+        sub = payload.get("sub")
+        if not sub:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+            )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
-    result = await db.execute(select(User).where(User.id == int(token_data.sub)))
+    result = await db.execute(select(User).where(User.id == int(sub)))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
     return user
 
 async def get_current_active_user(
@@ -102,3 +126,4 @@ async def verify_elder_access(
             detail="Not authorized to access this elder's data",
         )
     return True
+

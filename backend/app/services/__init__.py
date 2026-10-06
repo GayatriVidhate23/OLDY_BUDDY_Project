@@ -1,17 +1,29 @@
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Union
 from fastapi import HTTPException, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User, ElderProfile, Activity, UserRelationship, UserRole, ActivityType, VoiceCall, AlertNotification
+from app.models import (
+    User,
+    ElderProfile,
+    Activity,
+    UserRelationship,
+    UserRole,
+    ActivityType,
+    VoiceCall,
+    AlertNotification,
+    CallRecord,
+)
 from app.schemas import (
     UserCreate,
     UserResponse,
     ElderProfileCreate,
     ElderProfileUpdate,
     ElderProfileResponse,
+    ElderProfileBase,
     ActivityCreate,
+    ActivityBase,
     ActivityResponse,
     RelationshipCreate,
     RelationshipResponse,
@@ -24,6 +36,7 @@ from app.schemas import (
     VoiceWebhookResponse,
     AlertResponse,
     DashboardOverviewResponse,
+    CallRecordResponse,
 )
 from app.auth import (
     get_password_hash,
@@ -61,6 +74,26 @@ async def register_user(db: AsyncSession, user_in: UserCreate) -> UserResponse:
         await db.commit()
 
     return user_resp
+
+async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
+    result = await db.execute(select(User).where(User.email == user_in.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="User already exists")
+    user = User(
+        email=user_in.email,
+        hashed_password=get_password_hash(user_in.password),
+        full_name=user_in.full_name,
+        role=user_in.role,
+        is_active=True,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    if user.role == UserRole.ELDER:
+        profile = ElderProfile(user_id=user.id, preferences={}, medical_info={}, routines={})
+        db.add(profile)
+        await db.commit()
+    return user
 
 async def authenticate_user(db: AsyncSession, email: str, password: str) -> Token:
     result = await db.execute(select(User).where(User.email == email))
@@ -102,8 +135,18 @@ async def get_elder_profile(db: AsyncSession, elder_id: int) -> ElderProfileResp
         await db.refresh(profile)
     return ElderProfileResponse.model_validate(profile)
 
+async def get_profile(db: AsyncSession, elder_id: int) -> ElderProfile:
+    result = await db.execute(select(ElderProfile).where(ElderProfile.user_id == elder_id))
+    profile = result.scalar_one_or_none()
+    if not profile:
+        profile = ElderProfile(user_id=elder_id, preferences={}, medical_info={}, routines={})
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
+    return profile
+
 async def update_elder_profile(
-    db: AsyncSession, elder_id: int, profile_in: ElderProfileUpdate
+    db: AsyncSession, elder_id: int, profile_in: Union[ElderProfileUpdate, ElderProfileBase]
 ) -> ElderProfileResponse:
     result = await db.execute(select(ElderProfile).where(ElderProfile.user_id == elder_id))
     profile = result.scalar_one_or_none()
@@ -111,13 +154,13 @@ async def update_elder_profile(
         profile = ElderProfile(user_id=elder_id, preferences={}, medical_info={}, routines={})
         db.add(profile)
 
-    if profile_in.preferences is not None:
+    if hasattr(profile_in, 'preferences') and profile_in.preferences is not None:
         profile.preferences = profile_in.preferences
-    if profile_in.medical_info is not None:
+    if hasattr(profile_in, 'medical_info') and profile_in.medical_info is not None:
         profile.medical_info = profile_in.medical_info
-    if profile_in.routines is not None:
+    if hasattr(profile_in, 'routines') and profile_in.routines is not None:
         profile.routines = profile_in.routines
-    if profile_in.emergency_contact is not None:
+    if hasattr(profile_in, 'emergency_contact') and profile_in.emergency_contact is not None:
         profile.emergency_contact = profile_in.emergency_contact
 
     await db.commit()
@@ -126,29 +169,32 @@ async def update_elder_profile(
 
 # --- Activity Services & Policy Enforcement ---
 async def create_activity(
-    db: AsyncSession, elder_id: int, activity_in: ActivityCreate
+    db: AsyncSession, elder_id: int, activity_in: Union[ActivityCreate, ActivityBase]
 ) -> ActivityResponse:
+    activity_type = activity_in.activity_type
+    description = activity_in.description
+    status_val = getattr(activity_in, 'status', None) or "PENDING"
+
     activity = Activity(
         elder_id=elder_id,
-        activity_type=activity_in.activity_type,
-        description=activity_in.description,
-        status=activity_in.status or "PENDING",
+        activity_type=activity_type,
+        description=description,
+        status=status_val,
         timestamp=datetime.now(timezone.utc),
     )
     db.add(activity)
 
-    # Policy Engine: Automatically trigger AlertNotification if activity is SOS
-    if activity_in.activity_type == "SOS":
-        alert = AlertNotification(
+    if activity_type == "SOS":
+        from app.services.notify.policy import create_alert_with_notifications
+        await create_alert_with_notifications(
+            db,
             elder_id=elder_id,
-            severity="HIGH",
-            message=f"🚨 EMERGENCY SOS TRIGGERED: {activity_in.description or 'Immediate assistance required!'}",
-            is_resolved=False,
-            timestamp=datetime.now(timezone.utc),
+            severity="EMERGENCY",
+            message=f"🚨 EMERGENCY SOS TRIGGERED: {description or 'Immediate assistance required!'}",
         )
-        db.add(alert)
+    else:
+        await db.commit()
 
-    await db.commit()
     await db.refresh(activity)
     return ActivityResponse.model_validate(activity)
 
@@ -202,7 +248,6 @@ async def get_elder_relationships(
 async def trigger_outbound_voice_call(
     db: AsyncSession, call_in: VoiceCallCreate
 ) -> VoiceCallResponse:
-    # Get elder profile emergency contact if phone number not provided
     prof_res = await db.execute(select(ElderProfile).where(ElderProfile.user_id == call_in.elder_id))
     profile = prof_res.scalar_one_or_none()
     phone = call_in.phone_number or (profile.emergency_contact if profile else "+1 (555) 019-2834")
@@ -219,7 +264,6 @@ async def trigger_outbound_voice_call(
     )
     db.add(call)
 
-    # Log check-in activity automatically
     checkin_act = Activity(
         elder_id=call_in.elder_id,
         activity_type="CHECK_IN",
@@ -233,32 +277,79 @@ async def trigger_outbound_voice_call(
     await db.refresh(call)
     return VoiceCallResponse.model_validate(call)
 
+async def initiate_call(db: AsyncSession, elder_id: int, call_type: str) -> CallRecord:
+    record = CallRecord(elder_id=elder_id, call_type=call_type, status="INITIATED")
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
 async def process_voice_webhook(
-    db: AsyncSession, req: VoiceWebhookRequest
-) -> VoiceWebhookResponse:
-    user_speech_lower = req.user_speech.lower()
-    if "help" in user_speech_lower or "sos" in user_speech_lower or "fell" in user_speech_lower:
-        ai_reply = "I understand you need emergency help! I am notifying your caregiver right now."
-        action = "DISPATCH_ALERT"
+    db: AsyncSession,
+    req_or_id: Union[VoiceWebhookRequest, int],
+    event_type: Optional[str] = None,
+    speech_text: Optional[str] = None,
+) -> Union[VoiceWebhookResponse, dict]:
+    if isinstance(req_or_id, VoiceWebhookRequest):
+        req = req_or_id
+        user_speech_lower = req.user_speech.lower()
+        if "help" in user_speech_lower or "sos" in user_speech_lower or "fell" in user_speech_lower:
+            ai_reply = "I understand you need emergency help! I am notifying your caregiver right now."
+            action = "DISPATCH_ALERT"
 
-        alert = AlertNotification(
-            elder_id=req.elder_id,
-            severity="HIGH",
-            message=f"🚨 VOICE AGENT ALERT: Elder reported emergency in call speech ('{req.user_speech}')",
-            is_resolved=False,
-            timestamp=datetime.now(timezone.utc),
-        )
-        db.add(alert)
-        await db.commit()
-    elif "medicine" in user_speech_lower or "took" in user_speech_lower:
-        ai_reply = "Wonderful! I have recorded your medicine check-in."
-        action = "LOG_MEDICATION"
+            from app.services.notify.policy import create_alert_with_notifications
+            await create_alert_with_notifications(
+                db,
+                elder_id=req.elder_id,
+                severity="EMERGENCY",
+                message=f"🚨 VOICE AGENT ALERT: Elder reported emergency in call speech ('{req.user_speech}')",
+            )
+        elif "medicine" in user_speech_lower or "took" in user_speech_lower:
+            ai_reply = "Wonderful! I have recorded your medicine check-in."
+            action = "LOG_MEDICATION"
+        else:
+            ai_reply = f"Thank you for sharing. I heard: '{req.user_speech}'. Take care!"
+            action = "CONVERSATION"
+
+        twiml = f"<Response><Say>{ai_reply}</Say></Response>"
+        return VoiceWebhookResponse(twiml_response=twiml, ai_reply=ai_reply, action_taken=action)
     else:
-        ai_reply = f"Thank you for sharing. I heard: '{req.user_speech}'. Take care!"
-        action = "CONVERSATION"
+        call_id = req_or_id
+        result = await db.execute(select(CallRecord).where(CallRecord.id == call_id))
+        record = result.scalar_one_or_none()
+        if not record:
+            raise HTTPException(status_code=404, detail="Call record not found")
 
-    twiml = f"<Response><Say>{ai_reply}</Say></Response>"
-    return VoiceWebhookResponse(twiml_response=twiml, ai_reply=ai_reply, action_taken=action)
+        if event_type == "answered":
+            record.status = "IN_PROGRESS"
+        elif event_type == "speech" and speech_text:
+            text = speech_text.lower()
+            if "help" in text or "sos" in text or "emergency" in text:
+                record.response = "NEED_HELP"
+                record.outcome = "ESCALATED"
+                record.status = "COMPLETED"
+                act = Activity(elder_id=record.elder_id, activity_type="SOS", description=f"Triggered via voice call {call_id}: {speech_text}")
+                db.add(act)
+                from app.services.notify.policy import create_alert_with_notifications
+                await create_alert_with_notifications(
+                    db,
+                    elder_id=record.elder_id,
+                    severity="EMERGENCY",
+                    message=f"🚨 VOICE CALL SOS: Triggered via voice call {call_id}: {speech_text}",
+                )
+            elif "yes" in text:
+                record.response = "YES"
+                record.outcome = "COMPLETED_SUCCESS"
+            elif "no" in text:
+                record.response = "NO"
+                record.outcome = "NEEDS_FOLLOWUP"
+        elif event_type in ["completed", "failed"]:
+            record.status = event_type.upper()
+            record.end_time = datetime.now(timezone.utc)
+
+        await db.commit()
+        await db.refresh(record)
+        return {"status": "ok", "record": record}
 
 async def get_voice_history(
     db: AsyncSession, elder_id: int
@@ -284,20 +375,16 @@ async def get_elder_alerts(
 async def resolve_alert(
     db: AsyncSession, alert_id: int
 ) -> AlertResponse:
-    result = await db.execute(select(AlertNotification).where(AlertNotification.id == alert_id))
-    alert = result.scalar_one_or_none()
+    from app.services.notify.policy import acknowledge_alert
+    alert = await acknowledge_alert(db, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    alert.is_resolved = True
-    await db.commit()
-    await db.refresh(alert)
     return AlertResponse.model_validate(alert)
 
 # --- Family / Caregiver Dashboard Overview ---
 async def get_dashboard_overview(
     db: AsyncSession, elder_id: int
 ) -> DashboardOverviewResponse:
-    # 1. User & Profile
     user_res = await db.execute(select(User).where(User.id == elder_id))
     user = user_res.scalar_one_or_none()
     if not user:
@@ -306,7 +393,6 @@ async def get_dashboard_overview(
     prof_res = await db.execute(select(ElderProfile).where(ElderProfile.user_id == elder_id))
     profile = prof_res.scalar_one_or_none()
 
-    # 2. Activities
     act_res = await db.execute(select(Activity).where(Activity.elder_id == elder_id).order_by(Activity.timestamp.desc()))
     activities = act_res.scalars().all()
 
@@ -328,14 +414,12 @@ async def get_dashboard_overview(
             else:
                 missed_reminders += 1
 
-    # 3. Active Alerts
     alert_res = await db.execute(
         select(AlertNotification).where(AlertNotification.elder_id == elder_id, AlertNotification.is_resolved == False)
     )
     active_alerts = alert_res.scalars().all()
     active_alerts_count = len(active_alerts)
 
-    # 4. Status Badge Logic
     if active_alerts_count > 0:
         status_badge = "SOS_ALERT"
     elif last_checkin is not None:
