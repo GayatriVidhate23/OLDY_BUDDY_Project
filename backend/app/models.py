@@ -22,9 +22,16 @@ class ElderProfile(Base):
     __tablename__ = "elder_profiles"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True)
-    preferences = Column(JSON, default={})
-    medical_info = Column(JSON, default={})
-    emergency_contact = Column(String)
+    name = Column(String, nullable=True)
+    preferred_name = Column(String, nullable=True)
+    phone_e164 = Column(String, nullable=True)
+    language_code = Column(String, default="en-IN")
+    tts_speaker = Column(String, nullable=True)
+    timezone = Column(String, default="Asia/Kolkata")
+    quiet_hours = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_interaction_at = Column(DateTime, nullable=True)
+    last_checkin_at = Column(DateTime, nullable=True)
 
 class RelationshipType(str, enum.Enum):
     CAREGIVER = "CAREGIVER"
@@ -78,3 +85,40 @@ class OTP(Base):
     expires_at = Column(DateTime, nullable=False)
     attempts = Column(Integer, default=0)
     used = Column(Boolean, default=False)
+
+
+class ElderRoutine(Base):
+    __tablename__ = "elder_routines"
+    id = Column(Integer, primary_key=True, index=True)
+    elder_id = Column(Integer, ForeignKey("users.id"), unique=True, index=True)
+    wake_time = Column(String)
+    sleep_time = Column(String)
+    meal_times = Column(JSON, default=list)
+    checkin_times = Column(JSON, default=list)
+
+class EmergencyContact(Base):
+    __tablename__ = "emergency_contacts"
+    id = Column(Integer, primary_key=True, index=True)
+    elder_id = Column(Integer, ForeignKey("users.id"), index=True)
+    name = Column(String, nullable=False)
+    phone_e164 = Column(String, nullable=False)
+    priority = Column(Integer, nullable=False)
+
+class ElderConsent(Base):
+    __tablename__ = "elder_consents"
+    id = Column(Integer, primary_key=True, index=True)
+    elder_id = Column(Integer, ForeignKey("users.id"), index=True)
+    kind = Column(String, nullable=False)
+    version = Column(String)
+    evidence = Column(String)
+    revoked_at = Column(DateTime, nullable=True)
+
+class ElderPairingCode(Base):
+    __tablename__ = "elder_pairing_codes"
+    id = Column(Integer, primary_key=True, index=True)
+    elder_id = Column(Integer, ForeignKey("users.id"), index=True)
+    code = Column(String, nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+
+

@@ -52,5 +52,17 @@ async def verify_elder_access(elder_id: int, current_user: User = Depends(get_cu
         return True
     result = await db.execute(select(UserRelationship).where(UserRelationship.elder_id == elder_id, UserRelationship.caregiver_id == current_user.id))
     if not result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Not authorized to access this elder's data")
+        raise HTTPException(status_code=404, detail="Elder not found or not authorized")
     return True
+
+
+async def has_consent(db: AsyncSession, elder_id: int, kind: str) -> bool:
+    from app.models import ElderConsent
+    result = await db.execute(select(ElderConsent).where(ElderConsent.elder_id == elder_id, ElderConsent.kind == kind, ElderConsent.revoked_at == None))
+    return result.scalar_one_or_none() is not None
+
+
+async def has_consent(db: AsyncSession, elder_id: int, kind: str) -> bool:
+    from app.models import ElderConsent
+    result = await db.execute(select(ElderConsent).where(ElderConsent.elder_id == elder_id, ElderConsent.kind == kind, ElderConsent.revoked_at == None))
+    return result.scalar_one_or_none() is not None

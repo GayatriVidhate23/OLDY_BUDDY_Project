@@ -48,13 +48,97 @@ class TokenPayload(BaseModel):
     sub: Optional[str] = None
 
 class ElderProfileBase(BaseModel):
-    preferences: Optional[Dict[str, Any]] = {}
-    medical_info: Optional[Dict[str, Any]] = {}
-    emergency_contact: Optional[str] = None
+    name: Optional[str] = None
+    preferred_name: Optional[str] = None
+    phone_e164: Optional[str] = None
+    language_code: Optional[str] = "en-IN"
+    tts_speaker: Optional[str] = None
+    timezone: Optional[str] = "Asia/Kolkata"
+    quiet_hours: Optional[str] = None
+    is_active: Optional[bool] = True
+    last_interaction_at: Optional[datetime] = None
+    last_checkin_at: Optional[datetime] = None
+
+    @field_validator('phone_e164')
+    @classmethod
+    def validate_phone(cls, v):
+        if v and not re.match(r"^\+[1-9]\d{1,14}$", v):
+            raise ValueError("Phone number must be in E.164 format")
+        return v
+        
+    @field_validator('language_code')
+    @classmethod
+    def validate_lang(cls, v):
+        allowed = ["en-IN", "hi-IN", "bn-IN", "ta-IN", "te-IN", "gu-IN", "kn-IN", "ml-IN", "mr-IN", "pa-IN", "od-IN"]
+        if v and v not in allowed:
+            raise ValueError(f"Language code {v} not in allowed list")
+        return v
+        
+    @field_validator('tts_speaker')
+    @classmethod
+    def validate_speaker(cls, v):
+        allowed = ["speaker_1", "speaker_2", "female_en_in"]
+        if v and v not in allowed:
+            raise ValueError(f"TTS speaker {v} not allowed")
+        return v
 
 class ElderProfileResponse(ElderProfileBase):
     id: int
     user_id: int
+
+class ElderRoutineBase(BaseModel):
+    wake_time: str
+    sleep_time: str
+    meal_times: list[str] = []
+    checkin_times: list[str] = []
+
+    @field_validator('sleep_time')
+    @classmethod
+    def validate_times(cls, v, info):
+        if 'wake_time' in info.data and v == info.data['wake_time']:
+            raise ValueError("wake_time and sleep_time cannot be the same")
+        return v
+
+    @field_validator('checkin_times')
+    @classmethod
+    def validate_checkins(cls, v):
+        if len(v) != len(set(v)):
+            raise ValueError("checkin_times must be unique")
+        return sorted(v)
+
+class EmergencyContactBase(BaseModel):
+    name: str
+    phone_e164: str
+
+    @field_validator('phone_e164')
+    @classmethod
+    def validate_phone(cls, v):
+        if v and not re.match(r"^\+[1-9]\d{1,14}$", v):
+            raise ValueError("Phone number must be in E.164 format")
+        return v
+
+class EmergencyContactResponse(EmergencyContactBase):
+    id: int
+    priority: int
+
+class EmergencyContactOrder(BaseModel):
+    contact_ids: list[int]
+
+class ElderConsentBase(BaseModel):
+    kind: str
+    version: Optional[str] = None
+    evidence: Optional[str] = None
+
+class ElderConsentResponse(ElderConsentBase):
+    id: int
+    revoked_at: Optional[datetime] = None
+
+class PairingCodeResponse(BaseModel):
+    code: str
+    expires_at: datetime
+
+class PairingRequest(BaseModel):
+    code: str
 
 class ActivityBase(BaseModel):
     activity_type: str

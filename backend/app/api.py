@@ -218,3 +218,234 @@ async def chat_with_ai(elder_id: int, req: ChatRequest, db: AsyncSession = Depen
     db.add(ai_msg)
     await db.commit()
     return ChatResponse(reply=reply_text)
+
+
+from app.schemas import ElderRoutineBase, EmergencyContactBase, EmergencyContactResponse, EmergencyContactOrder, ElderConsentBase, ElderConsentResponse, PairingCodeResponse, PairingRequest
+from app.models import ElderRoutine, EmergencyContact, ElderConsent, ElderPairingCode, RelationshipType
+import uuid
+import random
+
+@router.post("/v1/elders", response_model=ElderProfileResponse)
+async def create_elder(profile_in: ElderProfileBase, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.models import ElderProfile
+    if current_user.role not in [UserRole.CAREGIVER, UserRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Not authorized to create elder")
+        
+    if profile_in.phone_e164:
+        res = await db.execute(select(ElderProfile).where(ElderProfile.phone_e164 == profile_in.phone_e164, ElderProfile.is_active == True))
+        if res.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Active elder with this phone number already exists")
+            
+    import uuid
+    dummy_email = f"elder_{uuid.uuid4().hex[:8]}@oldybuddy.internal"
+    new_user = User(email=dummy_email, hashed_password=get_password_hash("StrongPassword1!"), role=UserRole.ELDER, full_name=profile_in.name)
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    
+    profile = ElderProfile(**profile_in.model_dump(), user_id=new_user.id)
+    db.add(profile)
+    
+    # Auto link caregiver
+    if current_user.role == UserRole.CAREGIVER:
+        from app.models import UserRelationship, RelationshipType
+        rel = UserRelationship(elder_id=new_user.id, caregiver_id=current_user.id, type=RelationshipType.CAREGIVER)
+        db.add(rel)
+        
+    await db.commit()
+    await db.refresh(profile)
+    return profile
+
+@router.get("/v1/elders", response_model=List[ElderProfileResponse])
+async def list_elders(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.models import ElderProfile
+    if current_user.role == UserRole.ADMIN:
+        result = await db.execute(select(ElderProfile))
+    elif current_user.role == UserRole.CAREGIVER:
+        result = await db.execute(
+            select(ElderProfile).join(UserRelationship, UserRelationship.elder_id == ElderProfile.user_id)
+            .where(UserRelationship.caregiver_id == current_user.id)
+        )
+    else:
+        return []
+    return result.scalars().all()
+
+@router.get("/v1/elders/{elder_id}", response_model=ElderProfileResponse)
+async def get_elder_by_id(elder_id: int, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    from app.models import ElderProfile
+    result = await db.execute(select(ElderProfile).where(ElderProfile.user_id == elder_id))
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Elder profile not found")
+    return profile
+
+@router.patch("/v1/elders/{elder_id}", response_model=ElderProfileResponse)
+async def patch_elder(elder_id: int, profile_in: ElderProfileBase, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    from app.models import ElderProfile
+    result = await db.execute(select(ElderProfile).where(ElderProfile.user_id == elder_id))
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Elder profile not found")
+        
+    if profile_in.phone_e164 and profile_in.phone_e164 != profile.phone_e164:
+        res = await db.execute(select(ElderProfile).where(ElderProfile.phone_e164 == profile_in.phone_e164, ElderProfile.is_active == True))
+        if res.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Active elder with this phone number already exists")
+            
+    update_data = profile_in.model_dump(exclude_unset=True)
+    for k, v in update_data.items():
+        setattr(profile, k, v)
+        
+    await db.commit()
+    await db.refresh(profile)
+    return profile
+
+@router.post("/v1/elders/{elder_id}/caregivers")
+async def add_caregiver_to_elder(elder_id: int, caregiver_email: str, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(User).where(User.email == caregiver_email))
+    cg = res.scalar_one_or_none()
+    if not cg or cg.role != UserRole.CAREGIVER:
+        raise HTTPException(status_code=400, detail="Invalid caregiver email")
+        
+    rel = UserRelationship(elder_id=elder_id, caregiver_id=cg.id, type=RelationshipType.CAREGIVER)
+    db.add(rel)
+    await db.commit()
+    return {"msg": "Caregiver linked"}
+
+@router.put("/v1/elders/{elder_id}/routine", response_model=ElderRoutineBase)
+async def put_routine(elder_id: int, routine: ElderRoutineBase, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(ElderRoutine).where(ElderRoutine.elder_id == elder_id))
+    er = res.scalar_one_or_none()
+    if er:
+        for k, v in routine.model_dump().items():
+            setattr(er, k, v)
+    else:
+        er = ElderRoutine(elder_id=elder_id, **routine.model_dump())
+        db.add(er)
+    await db.commit()
+    await db.refresh(er)
+    return er
+
+@router.get("/v1/elders/{elder_id}/routine", response_model=ElderRoutineBase)
+async def get_routine(elder_id: int, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(ElderRoutine).where(ElderRoutine.elder_id == elder_id))
+    er = res.scalar_one_or_none()
+    if not er:
+        raise HTTPException(status_code=404, detail="Routine not found")
+    return er
+
+@router.get("/v1/elders/{elder_id}/routine/suggested-reminders")
+async def get_suggested_reminders(elder_id: int, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(ElderRoutine).where(ElderRoutine.elder_id == elder_id))
+    er = res.scalar_one_or_none()
+    if not er:
+        return []
+    suggs = []
+    for m in er.meal_times:
+        suggs.append({"type": "MEAL", "time": m, "message": "Time for your meal!"})
+    for c in er.checkin_times:
+        suggs.append({"type": "CHECK_IN", "time": c, "message": "Routine check-in"})
+    return suggs
+
+@router.get("/v1/elders/{elder_id}/emergency-contacts", response_model=List[EmergencyContactResponse])
+async def get_emergency_contacts(elder_id: int, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(EmergencyContact).where(EmergencyContact.elder_id == elder_id).order_by(EmergencyContact.priority))
+    return res.scalars().all()
+
+@router.post("/v1/elders/{elder_id}/emergency-contacts", response_model=EmergencyContactResponse)
+async def add_emergency_contact(elder_id: int, contact: EmergencyContactBase, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(EmergencyContact).where(EmergencyContact.elder_id == elder_id))
+    existing = res.scalars().all()
+    if len(existing) >= 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 emergency contacts allowed")
+    
+    if any(c.phone_e164 == contact.phone_e164 for c in existing):
+        raise HTTPException(status_code=400, detail="Duplicate phone number not allowed")
+        
+    prio = len(existing) + 1
+    new_c = EmergencyContact(elder_id=elder_id, name=contact.name, phone_e164=contact.phone_e164, priority=prio)
+    db.add(new_c)
+    await db.commit()
+    await db.refresh(new_c)
+    return new_c
+
+@router.delete("/v1/elders/{elder_id}/emergency-contacts/{cid}")
+async def del_emergency_contact(elder_id: int, cid: int, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(EmergencyContact).where(EmergencyContact.id == cid, EmergencyContact.elder_id == elder_id))
+    c = res.scalar_one_or_none()
+    if not c:
+        raise HTTPException(status_code=404)
+    await db.delete(c)
+    await db.commit()
+    
+    # Re-compact priorities
+    res = await db.execute(select(EmergencyContact).where(EmergencyContact.elder_id == elder_id).order_by(EmergencyContact.priority))
+    remaining = res.scalars().all()
+    for i, rc in enumerate(remaining):
+        rc.priority = i + 1
+    await db.commit()
+    return {"msg": "Deleted"}
+
+@router.post("/v1/elders/{elder_id}/consents", response_model=ElderConsentResponse)
+async def add_consent(elder_id: int, consent: ElderConsentBase, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    c = ElderConsent(elder_id=elder_id, **consent.model_dump())
+    db.add(c)
+    await db.commit()
+    await db.refresh(c)
+    return c
+
+@router.delete("/v1/elders/{elder_id}/consents/{kind}")
+async def revoke_consent(elder_id: int, kind: str, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(ElderConsent).where(ElderConsent.elder_id == elder_id, ElderConsent.kind == kind, ElderConsent.revoked_at == None))
+    c = res.scalar_one_or_none()
+    if c:
+        c.revoked_at = datetime.now(timezone.utc)
+        await db.commit()
+    return {"msg": "Revoked"}
+
+@router.post("/v1/elders/{elder_id}/pairing-code", response_model=PairingCodeResponse)
+async def generate_pairing_code(elder_id: int, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    code = str(random.randint(100000, 999999))
+    expires = datetime.now(timezone.utc) + timedelta(minutes=15)
+    pc = ElderPairingCode(elder_id=elder_id, code=code, expires_at=expires)
+    db.add(pc)
+    await db.commit()
+    return {"code": code, "expires_at": expires}
+
+@router.post("/v1/auth/pair", response_model=Token)
+async def pair_elder(req: PairingRequest, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(ElderPairingCode).where(ElderPairingCode.code == req.code, ElderPairingCode.used == False))
+    pc = res.scalar_one_or_none()
+    if not pc:
+        raise HTTPException(status_code=400, detail="Invalid or used pairing code")
+    if pc.expires_at.replace(tzinfo=None) < datetime.now(timezone.utc).replace(tzinfo=None):
+        raise HTTPException(status_code=400, detail="Pairing code expired")
+        
+    pc.used = True
+    
+    # Revoke old refresh tokens for this elder
+    # Not required by spec but "old session is revoked" -> revoke refresh tokens
+    await db.execute(
+        RefreshToken.__table__.update().where(RefreshToken.user_id == pc.elder_id).values(revoked=True)
+    )
+    await db.commit()
+    
+    access_token = create_access_token(pc.elder_id)
+    refresh_token = create_refresh_token(pc.elder_id)
+    db_refresh = RefreshToken(user_id=pc.elder_id, token=refresh_token, expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES))
+    db.add(db_refresh)
+    await db.commit()
+    
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+@router.get("/v1/me/elder", response_model=ElderProfileResponse)
+async def get_me_elder(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != UserRole.ELDER:
+        raise HTTPException(status_code=403, detail="Only elders can access this endpoint")
+    from app.models import ElderProfile
+    res = await db.execute(select(ElderProfile).where(ElderProfile.user_id == current_user.id))
+    prof = res.scalar_one_or_none()
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return prof
+

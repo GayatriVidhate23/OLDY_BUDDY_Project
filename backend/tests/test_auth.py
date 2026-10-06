@@ -78,4 +78,4 @@ async def test_authorization(client: AsyncClient):
     
     # Elder 1 accessing Elder 2's data
     res = await client.get(f"/api/elders/{e2_id}/profile", headers={"Authorization": f"Bearer {t1}"})
-    assert res.status_code == 403
+    assert res.status_code == 404
