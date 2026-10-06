@@ -449,3 +449,94 @@ async def get_me_elder(db: AsyncSession = Depends(get_db), current_user: User = 
         raise HTTPException(status_code=404, detail="Profile not found")
     return prof
 
+
+from app.schemas import SOSResponse, VerifySOS, AlertResponse, EventResponse
+from app.decision_engine import process_event
+from app.models import Alert, Event, NotificationJob
+
+@router.post("/v1/sos", response_model=SOSResponse)
+async def trigger_sos(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != UserRole.ELDER:
+        raise HTTPException(status_code=403, detail="Only elders can trigger SOS directly")
+        
+    event = await process_event(db, current_user.id, "sos_pressed", source="api")
+    await db.commit()
+    
+    # Get created alert
+    res = await db.execute(select(Alert).where(Alert.source_event_id == event.id))
+    alert = res.scalar_one_or_none()
+    
+    return {"alert_id": alert.id if alert else None, "msg": "SOS triggered"}
+
+@router.post("/v1/alerts/{id}/verify")
+async def verify_sos(id: int, req: VerifySOS, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    res = await db.execute(select(Alert).where(Alert.id == id))
+    alert = res.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404)
+        
+    # Elder can only verify their own
+    if current_user.role == UserRole.ELDER and current_user.id != alert.elder_id:
+        raise HTTPException(status_code=404)
+        
+    if req.safe:
+        await process_event(db, alert.elder_id, "sos_cancelled", source="elder_verification")
+    else:
+        alert.next_escalation_time = datetime.now(timezone.utc)
+        
+    await db.commit()
+    return {"msg": "Verified"}
+
+@router.get("/v1/elders/{elder_id}/alerts", response_model=List[AlertResponse])
+async def get_alerts(elder_id: int, status: str = "open", db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(Alert).where(Alert.elder_id == elder_id, Alert.status == status))
+    return res.scalars().all()
+
+@router.post("/v1/alerts/{id}/ack")
+async def ack_alert(id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    res = await db.execute(select(Alert).where(Alert.id == id))
+    alert = res.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404)
+        
+    # Check access logic for caregiver/alert
+    await verify_elder_access(alert.elder_id, current_user, db)
+        
+    if alert.status == "open":
+        alert.status = "acknowledged"
+        alert.acknowledged_at = datetime.now(timezone.utc)
+        alert.acknowledged_by = current_user.id
+        alert.next_escalation_time = None
+        
+        await process_event(db, alert.elder_id, "alert_acknowledged", payload={"alert_id": alert.id})
+        
+        # Skip pending notifications
+        await db.execute(NotificationJob.__table__.update().where(NotificationJob.alert_id == id, NotificationJob.status == "pending").values(status="skipped"))
+        
+        await db.commit()
+    return {"msg": "Acknowledged"}
+
+@router.post("/v1/alerts/{id}/resolve")
+async def resolve_alert(id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    res = await db.execute(select(Alert).where(Alert.id == id))
+    alert = res.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404)
+        
+    await verify_elder_access(alert.elder_id, current_user, db)
+    
+    if alert.status in ["open", "acknowledged"]:
+        alert.status = "resolved"
+        alert.resolved_at = datetime.now(timezone.utc)
+        alert.resolution = "Resolved by caregiver"
+        alert.next_escalation_time = None
+        
+        await process_event(db, alert.elder_id, "alert_resolved", payload={"alert_id": alert.id})
+        await db.execute(NotificationJob.__table__.update().where(NotificationJob.alert_id == id, NotificationJob.status == "pending").values(status="skipped"))
+        await db.commit()
+    return {"msg": "Resolved"}
+
+@router.get("/v1/elders/{elder_id}/events", response_model=List[EventResponse])
+async def get_events(elder_id: int, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
+    res = await db.execute(select(Event).where(Event.elder_id == elder_id).order_by(Event.occurred_at.desc()))
+    return res.scalars().all()

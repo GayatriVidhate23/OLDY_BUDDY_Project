@@ -164,3 +164,25 @@ class CallRecordResponse(BaseModel):
     elder_id: int
     call_type: str
     status: str
+
+class SOSResponse(BaseModel):
+    alert_id: Optional[int] = None
+    msg: str
+
+class VerifySOS(BaseModel):
+    safe: bool
+
+class AlertResponse(BaseModel):
+    id: int
+    elder_id: int
+    severity: str
+    title: str
+    status: str
+    created_at: datetime
+    resolution: Optional[str] = None
+    
+class EventResponse(BaseModel):
+    id: int
+    event_type: str
+    occurred_at: datetime
+    payload: dict
