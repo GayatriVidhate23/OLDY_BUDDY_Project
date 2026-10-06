@@ -36,8 +36,7 @@ app.add_middleware(
 
 if hasattr(settings, "API_V1_STR"):
     app.include_router(api_router, prefix=settings.API_V1_STR)
-else:
-    app.include_router(api_router, prefix="/api")
+app.include_router(api_router, prefix="/api")
 
 @app.get("/healthz")
 def healthz():

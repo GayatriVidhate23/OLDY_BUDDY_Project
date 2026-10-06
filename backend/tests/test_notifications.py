@@ -48,8 +48,8 @@ async def test_transactional_alert_and_outbox_creation(db: AsyncSession):
     Test 7: Alert + notification jobs are created transactionally in the same DB transaction.
     """
     # Setup Elder & Caregiver
-    elder = User(email="t_elder@test.com", hashed_password="pass", role=UserRole.ELDER)
-    caregiver = User(email="t_cg@test.com", hashed_password="pass", role=UserRole.CAREGIVER)
+    elder = User(email="t_elder@test.com", hashed_password="StrongPassword1!", role=UserRole.ELDER)
+    caregiver = User(email="t_cg@test.com", hashed_password="StrongPassword1!", role=UserRole.CAREGIVER)
     db.add_all([elder, caregiver])
     await db.commit()
     await db.refresh(elder)
@@ -78,8 +78,8 @@ async def test_policy_matrix_channels_and_recipients(db: AsyncSession):
     """
     Test 5: Policy matrix -> correct channels and recipients for INFO, WARNING, EMERGENCY.
     """
-    elder = User(email="matrix_elder@test.com", hashed_password="pass", role=UserRole.ELDER)
-    cg = User(email="matrix_cg@test.com", hashed_password="pass", role=UserRole.CAREGIVER)
+    elder = User(email="matrix_elder@test.com", hashed_password="StrongPassword1!", role=UserRole.ELDER)
+    cg = User(email="matrix_cg@test.com", hashed_password="StrongPassword1!", role=UserRole.CAREGIVER)
     db.add_all([elder, cg])
     await db.commit()
     await db.refresh(elder)
@@ -115,7 +115,7 @@ async def test_provider_fails_twice_succeeds_on_attempt_3(db: AsyncSession):
     """
     Test 1: Provider fails twice -> succeeds on attempt 3.
     """
-    user = User(email="flaky_user@test.com", hashed_password="pass", role=UserRole.CAREGIVER, phone_number="+15551234567")
+    user = User(email="flaky_user@test.com", hashed_password="StrongPassword1!", role=UserRole.CAREGIVER, phone_number="+15551234567")
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -171,7 +171,7 @@ async def test_provider_always_fails_becomes_permanently_failed(db: AsyncSession
     """
     Test 2: Provider always fails -> job becomes permanently failed.
     """
-    user = User(email="failing_user@test.com", hashed_password="pass", role=UserRole.CAREGIVER, phone_number="+15551234567")
+    user = User(email="failing_user@test.com", hashed_password="StrongPassword1!", role=UserRole.CAREGIVER, phone_number="+15551234567")
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -208,8 +208,8 @@ async def test_alert_acknowledged_pending_sms_skipped(db: AsyncSession):
     """
     Test 3: Alert acknowledged -> pending SMS is skipped.
     """
-    elder = User(email="ack_elder@test.com", hashed_password="pass", role=UserRole.ELDER)
-    cg = User(email="ack_cg@test.com", hashed_password="pass", role=UserRole.CAREGIVER)
+    elder = User(email="ack_elder@test.com", hashed_password="StrongPassword1!", role=UserRole.ELDER)
+    cg = User(email="ack_cg@test.com", hashed_password="StrongPassword1!", role=UserRole.CAREGIVER)
     db.add_all([elder, cg])
     await db.commit()
     await db.refresh(elder)
@@ -244,7 +244,7 @@ async def test_device_not_registered_deactivates_token(db: AsyncSession):
     """
     Test 4: DeviceNotRegistered -> device token is deactivated (is_active = False).
     """
-    user = User(email="device_user@test.com", hashed_password="pass", role=UserRole.CAREGIVER)
+    user = User(email="device_user@test.com", hashed_password="StrongPassword1!", role=UserRole.CAREGIVER)
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -286,8 +286,8 @@ async def test_emergency_escalation_continues_after_notification_failure(db: Asy
     Test 6: Emergency escalation continues after SMS/call failure.
     A permanently failed SMS or call MUST NEVER stop emergency escalation.
     """
-    elder = User(email="esc_elder@test.com", hashed_password="pass", role=UserRole.ELDER)
-    cg = User(email="esc_cg@test.com", hashed_password="pass", role=UserRole.CAREGIVER)
+    elder = User(email="esc_elder@test.com", hashed_password="StrongPassword1!", role=UserRole.ELDER)
+    cg = User(email="esc_cg@test.com", hashed_password="StrongPassword1!", role=UserRole.CAREGIVER)
     db.add_all([elder, cg])
     await db.commit()
     await db.refresh(elder)

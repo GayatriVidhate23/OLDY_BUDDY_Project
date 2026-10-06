@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from app.database import get_db, settings
 from app.models import User, Activity, UserRole, RefreshToken, OTP
 from app.schemas import UserCreate, UserResponse, Token, TokenRefreshRequest, OTPRequest, OTPVerify, ElderProfileResponse, ElderProfileBase, ActivityResponse, ActivityBase
-from app.auth import verify_password, create_access_token, create_refresh_token, get_current_user, verify_elder_access, get_password_hash
+from app.auth import get_current_active_user, verify_elder_access, verify_password, create_access_token, create_refresh_token, get_current_user, verify_elder_access, get_password_hash
 from app.services import create_user, get_profile, create_activity
 from jose import jwt, JWTError
 from typing import List
@@ -146,8 +146,15 @@ async def read_profile(elder_id: int, db: AsyncSession = Depends(get_db), _: boo
 @router.post("/elders/{elder_id}/profile", response_model=ElderProfileResponse)
 async def update_profile(elder_id: int, profile_in: ElderProfileBase, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
     from app.models import ElderProfile
-    profile = ElderProfile(**profile_in.model_dump(), user_id=elder_id)
-    db.add(profile)
+    existing = await db.execute(select(ElderProfile).where(ElderProfile.user_id == elder_id))
+    existing_profile = existing.scalar_one_or_none()
+    if existing_profile:
+        for k, v in profile_in.model_dump(exclude_unset=True).items():
+            setattr(existing_profile, k, v)
+        profile = existing_profile
+    else:
+        profile = ElderProfile(**profile_in.model_dump(), user_id=elder_id)
+        db.add(profile)
     await db.commit()
     await db.refresh(profile)
     return profile
@@ -546,7 +553,8 @@ async def get_events(elder_id: int, db: AsyncSession = Depends(get_db), _: bool 
 
 # --- Merged from Pratham ---
 from app import services
-from fastapi import Request
+from app.schemas import *
+from fastapi import Request, status
 from app.models import *
 
 @router.post("/voice/outbound-call", response_model=VoiceCallResponse, tags=["Voice Agent"])
@@ -705,3 +713,20 @@ async def run_notification_dispatcher(
     dispatcher = NotificationDispatcher()
     processed = await dispatcher.process_outbox(db)
     return {"status": "ok", "processed_count": len(processed)}
+
+
+@router.post("/elders", response_model=ElderProfileResponse)
+async def create_elder_by_caregiver(profile_in: ElderProfileBase, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.models import ElderProfile, User, UserRelationship, RelationshipType
+    import uuid
+    dummy_email = f"elder_{uuid.uuid4().hex[:8]}@oldybuddy.internal"
+    new_user = User(email=dummy_email, hashed_password="dummy", role=UserRole.ELDER, full_name=profile_in.name)
+    db.add(new_user)
+    await db.flush()
+    profile = ElderProfile(**profile_in.model_dump(), user_id=new_user.id)
+    db.add(profile)
+    rel = UserRelationship(elder_id=new_user.id, caregiver_id=current_user.id, type=RelationshipType.CAREGIVER)
+    db.add(rel)
+    await db.commit()
+    await db.refresh(profile)
+    return profile
