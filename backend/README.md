@@ -1,24 +1,22 @@
 # Oldy Buddy Backend
 
-Clean modular monolith backend for Oldy Buddy.
+Minimal FastAPI MVP Backend for Oldy Buddy Elder Care Companion.
 
 ## Features
-- Authentication & RBAC (Elder, Caregiver, Family, Admin)
-- Elder Profiles & Activities
-- Intelligence Architecture (Context, Intent, Policy, Workflow Engines)
+- JWT Authentication & Refresh Tokens
+- Role-based Authorization (ELDER, CAREGIVER, FAMILY, ADMIN)
+- Elder Profiles & Medical Info
+- Activities, Reminders, Check-ins & Emergency SOS Alerts
+- AI Assistant Conversation API
+- Health Check Endpoint
 
-## Setup
+## Quick Start
 ```bash
-python -m venv venv
-venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
-docker-compose up -d db redis
-alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-## Testing
+## Running Tests
 ```bash
 pytest
 ```
