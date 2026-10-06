@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 10080
     DATABASE_URL: str = "sqlite+aiosqlite:///./test.db"
+    DEBUG: bool = False
+    OTP_SECRET: str = os.environ.get("OTP_SECRET", "")
 
     class Config:
         env_file = ".env"

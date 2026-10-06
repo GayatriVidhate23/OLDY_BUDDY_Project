@@ -89,13 +89,15 @@ async def request_otp(req: OTPRequest, db: AsyncSession = Depends(get_db)):
         return {"msg": "If email exists, OTP sent"}
     
     import random
+    if not settings.DEBUG:
+        raise HTTPException(status_code=501, detail="Production OTP provider not configured")
     code = "123456" # MOCK OTP
     expires = datetime.now(timezone.utc) + timedelta(minutes=5)
     
     otp = OTP(user_id=user.id, code=get_password_hash(code), expires_at=expires)
     db.add(otp)
     await db.commit()
-    return {"msg": "OTP generated. (Mock: 123456)"}
+    return {"msg": "OTP generated."}
 
 @router.post("/auth/verify-otp", response_model=Token)
 async def verify_otp(req: OTPVerify, db: AsyncSession = Depends(get_db)):
