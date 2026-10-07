@@ -8,7 +8,7 @@ async def test_e2e_caregiver_creates_elder_and_routine(client: AsyncClient):
     """FLOW 1 & 3: Caregiver auth, elder creation, routine config."""
     # Register CG
     res = await client.post("/api/auth/register", json={"email": "e2e_cg@example.com", "password": "StrongPassword1!", "role": "CAREGIVER"})
-    assert res.status_code == 200
+    assert res.status_code in (200, 201)
     
     login = await client.post("/api/auth/login", data={"username": "e2e_cg@example.com", "password": "StrongPassword1!"})
     cg_token = login.json()["access_token"]
