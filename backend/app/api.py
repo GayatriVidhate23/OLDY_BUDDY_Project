@@ -496,7 +496,7 @@ async def get_me_elder(db: AsyncSession = Depends(get_db), current_user: User = 
 
 from app.schemas import SOSResponse, VerifySOS, AlertResponse, EventResponse
 from app.decision_engine import process_event
-from app.models import Alert, Event, NotificationJob
+from app.models import Alert, Event, Notification
 
 @router.post("/v1/sos", response_model=SOSResponse)
 async def trigger_sos(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -555,7 +555,7 @@ async def ack_alert(id: int, db: AsyncSession = Depends(get_db), current_user: U
         await process_event(db, alert.elder_id, "alert_acknowledged", payload={"alert_id": alert.id})
         
         # Skip pending notifications
-        await db.execute(NotificationJob.__table__.update().where(NotificationJob.alert_id == id, NotificationJob.status == "pending").values(status="skipped"))
+        await db.execute(Notification.__table__.update().where(Notification.alert_id == id, Notification.status == "PENDING").values(status="SKIPPED"))
         
         await db.commit()
     return {"msg": "Acknowledged"}
@@ -576,7 +576,7 @@ async def resolve_alert(id: int, db: AsyncSession = Depends(get_db), current_use
         alert.next_escalation_time = None
         
         await process_event(db, alert.elder_id, "alert_resolved", payload={"alert_id": alert.id})
-        await db.execute(NotificationJob.__table__.update().where(NotificationJob.alert_id == id, NotificationJob.status == "pending").values(status="skipped"))
+        await db.execute(Notification.__table__.update().where(Notification.alert_id == id, Notification.status == "PENDING").values(status="SKIPPED"))
         await db.commit()
     return {"msg": "Resolved"}
 

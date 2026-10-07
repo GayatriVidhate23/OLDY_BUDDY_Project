@@ -9,7 +9,7 @@ from app.models import (
     UserRole,
     UserRelationship,
     RelationshipType,
-    AlertNotification,
+    Alert,
     Notification,
     NotificationChannel,
     NotificationStatus,

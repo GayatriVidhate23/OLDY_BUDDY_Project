@@ -7,7 +7,7 @@ from app.models import (
     User,
     UserRole,
     UserRelationship,
-    AlertNotification,
+    Alert,
     Notification,
     NotificationChannel,
     NotificationStatus,
@@ -41,10 +41,10 @@ async def create_alert_with_notifications(
     message: str,
     title: Optional[str] = None,
     warning_delay_minutes: int = 15,
-) -> AlertNotification:
+) -> Alert:
     """
     Outbox Pattern:
-    Create AlertNotification record and corresponding Notification outbox jobs in the SAME DB TRANSACTION.
+    Create Alert record and corresponding Notification outbox jobs in the SAME DB TRANSACTION.
     """
     now = datetime.now(timezone.utc)
     sev_upper = severity.upper()
@@ -57,16 +57,16 @@ async def create_alert_with_notifications(
     elif sev_upper in ["LOW"]:
         sev_upper = "INFO"
 
-    # 1. Create AlertNotification record
-    alert = AlertNotification(
+    # 1. Create Alert record
+    alert = Alert(
         elder_id=elder_id,
         severity=sev_upper,
         message=message,
-        is_resolved=False,
-        is_acknowledged=False,
+        title=title or f"{sev_upper} Alert",
+        status="open",
         escalation_stage=1,
         escalation_status="ACTIVE",
-        timestamp=now,
+        created_at=now,
     )
     db.add(alert)
     await db.flush()  # Ensures alert.id is generated within the active transaction
@@ -164,20 +164,19 @@ async def create_alert_with_notifications(
 
 async def acknowledge_alert(
     db: AsyncSession, alert_id: int, user_id: Optional[int] = None
-) -> Optional[AlertNotification]:
+) -> Optional[Alert]:
     """
     Acknowledge an alert and skip any pending delayed notifications.
     """
     now = datetime.now(timezone.utc)
-    res = await db.execute(select(AlertNotification).where(AlertNotification.id == alert_id))
+    res = await db.execute(select(Alert).where(Alert.id == alert_id))
     alert = res.scalar_one_or_none()
     if not alert:
         return None
 
-    alert.is_acknowledged = True
-    alert.is_resolved = True
+    alert.status = "acknowledged"
     alert.acknowledged_at = now
-    alert.acknowledged_by_id = user_id
+    alert.acknowledged_by = user_id
     alert.escalation_status = "ACKNOWLEDGED"
 
     # Mark all pending delayed SMS/Call notifications for this alert as SKIPPED
@@ -202,9 +201,9 @@ async def escalate_emergency_alert(db: AsyncSession, alert_id: int) -> bool:
     Escalation operates independently of individual SMS/Call job failures.
     """
     now = datetime.now(timezone.utc)
-    res = await db.execute(select(AlertNotification).where(AlertNotification.id == alert_id))
+    res = await db.execute(select(Alert).where(Alert.id == alert_id))
     alert = res.scalar_one_or_none()
-    if not alert or alert.is_acknowledged or alert.is_resolved:
+    if not alert or alert.status in ["acknowledged", "resolved"]:
         return False
 
     alert.escalation_stage += 1

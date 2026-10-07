@@ -91,25 +91,14 @@ class VoiceCall(Base):
     ai_summary = Column(Text, nullable=True)
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-class AlertNotification(Base):
-    __tablename__ = "alert_notifications"
-    id = Column(Integer, primary_key=True, index=True)
-    elder_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    severity = Column(String, default="HIGH") # INFO, WARNING, EMERGENCY, HIGH, MEDIUM, LOW
-    message = Column(String, nullable=False)
-    is_resolved = Column(Boolean, default=False)
-    is_acknowledged = Column(Boolean, default=False)
-    acknowledged_at = Column(DateTime, nullable=True)
-    acknowledged_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    escalation_stage = Column(Integer, default=1)
-    escalation_status = Column(String, default="ACTIVE") # ACTIVE, ACKNOWLEDGED, ESCALATED, COMPLETED
-    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 
 class Notification(Base):
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True, index=True)
-    alert_id = Column(Integer, ForeignKey("alert_notifications.id"), index=True, nullable=True)
-    recipient_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    alert_id = Column(Integer, ForeignKey("alerts.id"), index=True, nullable=True)
+    recipient_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    recipient_phone = Column(String, nullable=True)
     channel = Column(String, nullable=False) # PUSH, SMS, CALL
     status = Column(String, default="PENDING", nullable=False) # PENDING, PROCESSING, SENT, FAILED, SKIPPED
     attempt_count = Column(Integer, default=0, nullable=False)
@@ -211,6 +200,7 @@ class Alert(Base):
     severity = Column(String, nullable=False)
     title = Column(String, nullable=False)
     details = Column(String, nullable=True)
+    message = Column(String, nullable=True)
     source_event_id = Column(Integer, ForeignKey("events.id"), nullable=True)
     status = Column(String, default="open", index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -219,19 +209,7 @@ class Alert(Base):
     resolved_at = Column(DateTime, nullable=True)
     resolution = Column(String, nullable=True)
     escalation_stage = Column(Integer, default=0)
+    escalation_status = Column(String, default="ACTIVE")
     next_escalation_time = Column(DateTime, nullable=True)
 
-class NotificationJob(Base):
-    __tablename__ = "notification_jobs"
-    id = Column(Integer, primary_key=True, index=True)
-    type_channel = Column(String, nullable=False)
-    recipient = Column(String, nullable=False)
-    elder_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    alert_id = Column(Integer, ForeignKey("alerts.id"), nullable=True)
-    payload = Column(JSON, default=dict)
-    status = Column(String, default="pending", index=True)
-    attempt_count = Column(Integer, default=0)
-    next_attempt_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    completed_at = Column(DateTime, nullable=True)
-    error = Column(String, nullable=True)
+

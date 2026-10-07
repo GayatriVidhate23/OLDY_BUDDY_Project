@@ -8,7 +8,7 @@ from app.models import (
     Notification,
     NotificationChannel,
     NotificationStatus,
-    AlertNotification,
+    Alert,
     UserDevice,
     User,
     ElderProfile,
@@ -42,13 +42,12 @@ class NotificationDispatcher:
         processed = []
 
         for notif in pending_notifs:
-            # 2. Re-check alert acknowledgement status before dispatching delayed SMS/Push
             if notif.alert_id:
                 alert_res = await db.execute(
-                    select(AlertNotification).where(AlertNotification.id == notif.alert_id)
+                    select(Alert).where(Alert.id == notif.alert_id)
                 )
                 alert = alert_res.scalar_one_or_none()
-                if alert and (alert.is_acknowledged or alert.is_resolved):
+                if alert and alert.status in ["acknowledged", "resolved"]:
                     notif.status = NotificationStatus.SKIPPED.value
                     notif.updated_at = now
                     processed.append(notif)
@@ -126,16 +125,20 @@ class NotificationDispatcher:
         notif.provider_message_id = results[0].get("id") if results else "push_sent"
 
     async def _dispatch_sms(self, db: AsyncSession, notif: Notification) -> None:
-        # Fetch recipient user phone number
-        user_res = await db.execute(select(User).where(User.id == notif.recipient_id))
-        user = user_res.scalar_one_or_none()
-        phone = (user.phone_number if user else None)
+        phone = None
+        if notif.recipient_id:
+            # Fetch recipient user phone number
+            user_res = await db.execute(select(User).where(User.id == notif.recipient_id))
+            user = user_res.scalar_one_or_none()
+            phone = (user.phone_number if user else None)
 
-        if not phone:
-            # Fallback to elder profile emergency contact if recipient is elder
-            prof_res = await db.execute(select(ElderProfile).where(ElderProfile.user_id == notif.recipient_id))
-            profile = prof_res.scalar_one_or_none()
-            phone = profile.emergency_contact if profile else None
+            if not phone:
+                # Fallback to elder profile emergency contact if recipient is elder
+                prof_res = await db.execute(select(ElderProfile).where(ElderProfile.user_id == notif.recipient_id))
+                profile = prof_res.scalar_one_or_none()
+                phone = profile.emergency_contact if profile else None
+        elif notif.recipient_phone:
+            phone = notif.recipient_phone
 
         if not phone:
             phone = "+15550192834"  # Default test fallback phone

@@ -12,7 +12,7 @@ from app.models import (
     UserRole,
     ActivityType,
     VoiceCall,
-    AlertNotification,
+    Alert,
     CallRecord,
 )
 from app.schemas import (
@@ -363,9 +363,9 @@ async def get_elder_alerts(
     db: AsyncSession, elder_id: int
 ) -> List[AlertResponse]:
     result = await db.execute(
-        select(AlertNotification)
-        .where(AlertNotification.elder_id == elder_id)
-        .order_by(AlertNotification.timestamp.desc())
+        select(Alert)
+        .where(Alert.elder_id == elder_id)
+        .order_by(Alert.created_at.desc())
     )
     alerts = result.scalars().all()
     return [AlertResponse.model_validate(a) for a in alerts]
@@ -413,7 +413,7 @@ async def get_dashboard_overview(
                 missed_reminders += 1
 
     alert_res = await db.execute(
-        select(AlertNotification).where(AlertNotification.elder_id == elder_id, AlertNotification.is_resolved == False)
+        select(Alert).where(Alert.elder_id == elder_id, Alert.status != "resolved")
     )
     active_alerts = alert_res.scalars().all()
     active_alerts_count = len(active_alerts)

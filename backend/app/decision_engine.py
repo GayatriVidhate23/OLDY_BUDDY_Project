@@ -1,8 +1,9 @@
 
 from datetime import datetime, timedelta, timezone
-from app.models import Event, Alert, NotificationJob
+from app.models import Event, Alert, Notification, EmergencyContact
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from app.services.notify.policy import get_elder_caregivers
 
 EVENT_TYPES = [
     "reminder_completed", "reminder_declined", "reminder_missed",
@@ -54,14 +55,17 @@ async def process_event(db: AsyncSession, elder_id: int, event_type: str, source
             await db.flush()
             
             # Basic policies
+            caregivers = await get_elder_caregivers(db, elder_id)
             if decision["severity"] == "INFO":
-                job = NotificationJob(type_channel="push", recipient="caregivers", elder_id=elder_id, alert_id=alert.id, payload={"msg": alert.title})
-                db.add(job)
+                for cg in caregivers:
+                    job = Notification(channel="PUSH", recipient_id=cg.id, alert_id=alert.id, payload={"msg": alert.title})
+                    db.add(job)
             elif decision["severity"] == "WARNING":
-                job = NotificationJob(type_channel="push", recipient="caregivers", elder_id=elder_id, alert_id=alert.id, payload={"msg": alert.title})
-                db.add(job)
-                job2 = NotificationJob(type_channel="sms", recipient="caregivers", elder_id=elder_id, alert_id=alert.id, payload={"msg": alert.title}, next_attempt_at=datetime.now(timezone.utc) + timedelta(minutes=15))
-                db.add(job2)
+                for cg in caregivers:
+                    job = Notification(channel="PUSH", recipient_id=cg.id, alert_id=alert.id, payload={"msg": alert.title})
+                    db.add(job)
+                    job2 = Notification(channel="SMS", recipient_id=cg.id, alert_id=alert.id, payload={"msg": alert.title}, next_attempt_at=datetime.now(timezone.utc) + timedelta(minutes=15))
+                    db.add(job2)
     return event
 
 async def escalate_alerts(db: AsyncSession, current_time: datetime = None):
@@ -75,18 +79,25 @@ async def escalate_alerts(db: AsyncSession, current_time: datetime = None):
         if alert.escalation_stage == 0:
             alert.escalation_stage = 1
             alert.next_escalation_time = current_time + timedelta(seconds=180)
-            db.add(NotificationJob(type_channel="push", recipient="caregivers", elder_id=alert.elder_id, alert_id=alert.id, payload={"msg": "URGENT", "priority": "high"}))
-            db.add(NotificationJob(type_channel="sms", recipient="caregivers", elder_id=alert.elder_id, alert_id=alert.id, payload={"msg": "URGENT ALARM"}))
-            db.add(NotificationJob(type_channel="call", recipient="caregivers", elder_id=alert.elder_id, alert_id=alert.id, payload={"msg": "Automated call"}))
+            caregivers = await get_elder_caregivers(db, alert.elder_id)
+            for cg in caregivers:
+                db.add(Notification(channel="PUSH", recipient_id=cg.id, alert_id=alert.id, payload={"msg": "URGENT", "priority": "high"}))
+                db.add(Notification(channel="SMS", recipient_id=cg.id, alert_id=alert.id, payload={"msg": "URGENT ALARM"}))
+                db.add(Notification(channel="CALL", recipient_id=cg.id, alert_id=alert.id, payload={"msg": "Automated call"}))
         elif alert.escalation_stage == 1:
             alert.escalation_stage = 2
             alert.next_escalation_time = current_time + timedelta(minutes=5)
             # Find emergency contacts
-            db.add(NotificationJob(type_channel="sms", recipient="emergency_contacts", elder_id=alert.elder_id, alert_id=alert.id, payload={"msg": "URGENT: Caregivers unreachable"}))
+            res_ec = await db.execute(select(EmergencyContact).where(EmergencyContact.elder_id == alert.elder_id))
+            ecs = res_ec.scalars().all()
+            for ec in ecs:
+                db.add(Notification(channel="SMS", recipient_phone=ec.phone_e164, alert_id=alert.id, payload={"msg": "URGENT: Caregivers unreachable"}))
         elif alert.escalation_stage >= 2 and alert.escalation_stage < 8:
             # Stage 3 paging
             alert.escalation_stage += 1
             alert.next_escalation_time = current_time + timedelta(minutes=5)
-            db.add(NotificationJob(type_channel="push", recipient="caregivers", elder_id=alert.elder_id, alert_id=alert.id, payload={"msg": "Call 112"}))
+            caregivers = await get_elder_caregivers(db, alert.elder_id)
+            for cg in caregivers:
+                db.add(Notification(channel="PUSH", recipient_id=cg.id, alert_id=alert.id, payload={"msg": "Call 112"}))
         elif alert.escalation_stage >= 8:
             alert.next_escalation_time = None
