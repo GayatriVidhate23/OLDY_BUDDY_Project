@@ -69,7 +69,7 @@ async def register_user(db: AsyncSession, user_in: UserCreate) -> UserResponse:
 
     # Auto-create ElderProfile if role is ELDER
     if db_user.role == UserRole.ELDER:
-        profile = ElderProfile(user_id=db_user.id, preferences={}, medical_info={}, routines={})
+        profile = ElderProfile(user_id=db_user.id, preferences={}, routines={})
         db.add(profile)
         await db.commit()
 
@@ -90,7 +90,7 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
     await db.commit()
     await db.refresh(user)
     if user.role == UserRole.ELDER:
-        profile = ElderProfile(user_id=user.id, preferences={}, medical_info={}, routines={})
+        profile = ElderProfile(user_id=user.id, preferences={}, routines={})
         db.add(profile)
         await db.commit()
     return user
@@ -129,7 +129,7 @@ async def get_elder_profile(db: AsyncSession, elder_id: int) -> ElderProfileResp
     result = await db.execute(select(ElderProfile).where(ElderProfile.user_id == elder_id))
     profile = result.scalar_one_or_none()
     if not profile:
-        profile = ElderProfile(user_id=elder_id, preferences={}, medical_info={}, routines={})
+        profile = ElderProfile(user_id=elder_id, preferences={}, routines={})
         db.add(profile)
         await db.commit()
         await db.refresh(profile)
@@ -139,7 +139,7 @@ async def get_profile(db: AsyncSession, elder_id: int) -> ElderProfile:
     result = await db.execute(select(ElderProfile).where(ElderProfile.user_id == elder_id))
     profile = result.scalar_one_or_none()
     if not profile:
-        profile = ElderProfile(user_id=elder_id, preferences={}, medical_info={}, routines={})
+        profile = ElderProfile(user_id=elder_id, preferences={}, routines={})
         db.add(profile)
         await db.commit()
         await db.refresh(profile)
@@ -151,13 +151,11 @@ async def update_elder_profile(
     result = await db.execute(select(ElderProfile).where(ElderProfile.user_id == elder_id))
     profile = result.scalar_one_or_none()
     if not profile:
-        profile = ElderProfile(user_id=elder_id, preferences={}, medical_info={}, routines={})
+        profile = ElderProfile(user_id=elder_id, preferences={}, routines={})
         db.add(profile)
 
     if hasattr(profile_in, 'preferences') and profile_in.preferences is not None:
         profile.preferences = profile_in.preferences
-    if hasattr(profile_in, 'medical_info') and profile_in.medical_info is not None:
-        profile.medical_info = profile_in.medical_info
     if hasattr(profile_in, 'routines') and profile_in.routines is not None:
         profile.routines = profile_in.routines
     if hasattr(profile_in, 'emergency_contact') and profile_in.emergency_contact is not None:

@@ -60,7 +60,6 @@ class ElderProfile(Base):
     last_interaction_at = Column(DateTime, nullable=True)
     last_checkin_at = Column(DateTime, nullable=True)
     preferences = Column(JSON, default={})
-    medical_info = Column(JSON, default={})
     routines = Column(JSON, default={})
     emergency_contact = Column(String, nullable=True)
 
@@ -190,7 +189,7 @@ class ElderPairingCode(Base):
     __tablename__ = "elder_pairing_codes"
     id = Column(Integer, primary_key=True, index=True)
     elder_id = Column(Integer, ForeignKey("users.id"), index=True)
-    code = Column(String, nullable=False, unique=True, index=True)
+    hashed_code = Column(String, nullable=False, unique=True, index=True)
     expires_at = Column(DateTime, nullable=False)
     used = Column(Boolean, default=False)
 

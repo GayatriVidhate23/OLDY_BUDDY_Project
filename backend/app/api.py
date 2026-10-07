@@ -445,14 +445,18 @@ async def revoke_consent(elder_id: int, kind: str, db: AsyncSession = Depends(ge
 async def generate_pairing_code(elder_id: int, db: AsyncSession = Depends(get_db), _: bool = Depends(verify_elder_access)):
     code = str(random.randint(100000, 999999))
     expires = datetime.now(timezone.utc) + timedelta(minutes=15)
-    pc = ElderPairingCode(elder_id=elder_id, code=code, expires_at=expires)
+    import hashlib
+    hashed = hashlib.sha256(code.encode()).hexdigest()
+    pc = ElderPairingCode(elder_id=elder_id, hashed_code=hashed, expires_at=expires)
     db.add(pc)
     await db.commit()
     return {"code": code, "expires_at": expires}
 
 @router.post("/v1/auth/pair", response_model=Token)
 async def pair_elder(req: PairingRequest, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(ElderPairingCode).where(ElderPairingCode.code == req.code, ElderPairingCode.used == False))
+    import hashlib
+    hashed = hashlib.sha256(req.code.encode()).hexdigest()
+    res = await db.execute(select(ElderPairingCode).where(ElderPairingCode.hashed_code == hashed, ElderPairingCode.used == False).with_for_update())
     pc = res.scalar_one_or_none()
     if not pc:
         raise HTTPException(status_code=400, detail="Invalid or used pairing code")
@@ -594,11 +598,17 @@ async def make_outbound_call(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.auth import has_consent
     await verify_elder_access(call_in.elder_id, current_user, db)
+    if not await has_consent(db, call_in.elder_id, "voice_call"):
+        raise HTTPException(status_code=403, detail="Elder has not consented to voice calls")
     return await services.trigger_outbound_voice_call(db, call_in)
 
 @router.post("/voice/outbound", response_model=CallRecordResponse, tags=["Voice Agent"])
 async def make_outbound_call_record(req: OutboundCallRequest, db: AsyncSession = Depends(get_db)):
+    from app.auth import has_consent
+    if not await has_consent(db, req.elder_id, "voice_call"):
+        raise HTTPException(status_code=403, detail="Elder has not consented to voice calls")
     return await services.initiate_call(db, req.elder_id, req.call_type)
 
 @router.post("/voice/webhook", tags=["Voice Agent"])
