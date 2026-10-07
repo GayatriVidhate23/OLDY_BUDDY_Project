@@ -231,3 +231,16 @@ class NotificationJob(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
     error = Column(String, nullable=True)
+
+class Message(Base):
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True, index=True)
+    elder_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    sender_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    sender_role = Column(String, nullable=False)
+    kind = Column(String, default="text")
+    body = Column(String(500), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    read_at = Column(DateTime, nullable=True)
+
+

@@ -282,3 +282,36 @@ class NotificationOutboxResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     service: str
+
+# --- Module 8 Schemas ---
+class ElderStatusResponse(BaseModel):
+    status: str
+    headline: str
+
+class TrendDay(BaseModel):
+    date: str
+    reminders_completed: int
+    reminders_missed: int
+    checkins_completed: int
+    checkins_missed: int
+    conversations: int
+
+class TrendsResponse(BaseModel):
+    days: List[TrendDay]
+
+class MessageCreate(BaseModel):
+    body: str
+    kind: Optional[str] = "text"
+
+class MessageResponse(BaseModel):
+    id: int
+    elder_id: int
+    sender_user_id: int
+    sender_role: str
+    kind: str
+    body: str
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
