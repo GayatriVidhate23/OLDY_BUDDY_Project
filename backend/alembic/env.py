@@ -5,7 +5,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.database import Base, settings
-from app.models import User, ElderProfile, UserRelationship, Activity
+import app.models
 
 config = context.config
 if config.config_file_name is not None:
@@ -26,6 +26,12 @@ async def run_async_migrations() -> None:
     await connectable.dispose()
 
 def run_migrations_online() -> None:
-    asyncio.run(run_async_migrations())
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(run_async_migrations())
+    else:
+        pass
 
 run_migrations_online()
+
