@@ -137,15 +137,13 @@ async def test_classify_empty_user_text() -> None:
 
 @pytest.mark.asyncio
 async def test_classify_provider_exception_handling() -> None:
-    """Verify classifier catches provider errors and returns graceful fallback."""
+    """Verify classifier propagates ProviderError to allow service-level handling."""
     fake_llm = FakeLLM(error_to_raise=ProviderError("Rate limit exceeded", provider_name="FakeLLM"))
     classifier = IntentClassifier(llm=fake_llm)
 
-    result = await classifier.classify("Hello?")
-
-    assert result.intent == Intent.UNKNOWN
-    assert result.reply == FALLBACK_REPLY
-    assert result.confidence == 0.0
+    with pytest.raises(ProviderError) as exc_info:
+        await classifier.classify("Hello?")
+    assert "Rate limit exceeded" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

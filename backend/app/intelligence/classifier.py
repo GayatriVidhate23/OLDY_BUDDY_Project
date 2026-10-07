@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from app.core.contracts import Intent
 from app.intelligence.base import LLMProvider
+from app.intelligence.exceptions import ProviderError
 from app.intelligence.factory import get_providers
 from app.intelligence.schemas import IntentClassificationResult
 
@@ -56,6 +57,9 @@ class IntentClassifier:
 
         Returns:
             IntentClassificationResult with intent, reply, confidence, and reasoning.
+
+        Raises:
+            ProviderError: If the underlying LLM provider encounters an error.
         """
         clean_text = user_text.strip() if user_text else ""
         if not clean_text:
@@ -82,14 +86,12 @@ class IntentClassifier:
 
         try:
             raw_response = await self.llm.complete(messages, temperature=0.1)
-            return self._parse_response(raw_response)
-        except Exception:
-            return IntentClassificationResult(
-                intent=Intent.UNKNOWN,
-                reply=FALLBACK_REPLY,
-                confidence=0.0,
-                reasoning="Provider error or unhandled exception during classification",
-            )
+        except ProviderError:
+            raise
+        except Exception as err:
+            raise ProviderError(f"LLM provider failure during classification: {err}", provider_name="IntentClassifier") from err
+
+        return self._parse_response(raw_response)
 
     def _parse_response(self, raw_text: str) -> IntentClassificationResult:
         """Parse and validate LLM output into IntentClassificationResult."""
