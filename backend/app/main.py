@@ -10,10 +10,23 @@ from app.database import settings, get_db, init_db
 # pratham used api_router, main used router. Let's import it as api_router
 from app.api import router as api_router
 
+import asyncio
+from app.worker import notification_worker
+
+worker_task = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global worker_task
     await init_db()
+    worker_task = asyncio.create_task(notification_worker())
     yield
+    if worker_task:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

@@ -15,13 +15,15 @@ from app.models import (
 )
 from app.services.notify.expo_push import ExpoPushService
 from app.services.notify.sms import SmsProvider, get_sms_provider, ConsoleSmsProvider
+from app.services.notify.call import CallProvider, get_call_provider
 
 MAX_RETRIES = getattr(settings, "MAX_NOTIFICATION_RETRIES", 3)
 
 class NotificationDispatcher:
-    def __init__(self, push_service: ExpoPushService = None, sms_provider: SmsProvider = None):
+    def __init__(self, push_service: ExpoPushService = None, sms_provider: SmsProvider = None, call_provider: CallProvider = None):
         self.push_service = push_service or ExpoPushService()
         self.sms_provider = sms_provider or get_sms_provider()
+        self.call_provider = call_provider or get_call_provider()
 
     async def process_outbox(self, db: AsyncSession, limit: int = 50) -> List[Notification]:
         """
@@ -150,5 +152,24 @@ class NotificationDispatcher:
         notif.provider_message_id = res.get("provider_message_id", "sms_sent")
 
     async def _dispatch_call(self, db: AsyncSession, notif: Notification) -> None:
-        # Telephony mock call dispatch
-        notif.provider_message_id = f"call_{notif.id}_{int(datetime.now(timezone.utc).timestamp())}"
+        phone = None
+        if notif.recipient_id:
+            user_res = await db.execute(select(User).where(User.id == notif.recipient_id))
+            user = user_res.scalar_one_or_none()
+            phone = (user.phone_number if user else None)
+            
+            if not phone:
+                prof_res = await db.execute(select(ElderProfile).where(ElderProfile.user_id == notif.recipient_id))
+                profile = prof_res.scalar_one_or_none()
+                phone = profile.emergency_contact if profile else None
+        elif notif.recipient_phone:
+            phone = notif.recipient_phone
+
+        if not phone:
+            phone = "+15550192834"
+
+        payload = notif.payload or {}
+        call_text = payload.get("body") or "OldyBuddy Notification"
+
+        res = await self.call_provider.make_call(phone, call_text)
+        notif.provider_message_id = res.get("provider_message_id", "call_sent")
