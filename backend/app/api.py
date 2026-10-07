@@ -35,7 +35,10 @@ async def login(db: AsyncSession = Depends(get_db), form_data: OAuth2PasswordReq
     access_token = create_access_token(user.id)
     refresh_token = create_refresh_token(user.id)
     
-    db_refresh = RefreshToken(user_id=user.id, token=refresh_token, expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES))
+    import hashlib
+    hashed_rt = hashlib.sha256(refresh_token.encode()).hexdigest()
+    
+    db_refresh = RefreshToken(user_id=user.id, hashed_token=hashed_rt, expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES))
     db.add(db_refresh)
     await db.commit()
     
@@ -51,7 +54,9 @@ async def refresh_token_endpoint(req: TokenRefreshRequest, db: AsyncSession = De
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
         
-    result = await db.execute(select(RefreshToken).where(RefreshToken.token == req.refresh_token, RefreshToken.revoked == False))
+    import hashlib
+    hashed_rt = hashlib.sha256(req.refresh_token.encode()).hexdigest()
+    result = await db.execute(select(RefreshToken).where(RefreshToken.hashed_token == hashed_rt, RefreshToken.revoked == False))
     db_token = result.scalar_one_or_none()
     if not db_token:
         raise HTTPException(status_code=401, detail="Refresh token revoked or missing")
@@ -65,7 +70,9 @@ async def refresh_token_endpoint(req: TokenRefreshRequest, db: AsyncSession = De
     
     db_token.revoked = True
     
-    new_rt = RefreshToken(user_id=user_id, token=new_refresh, expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES))
+    import hashlib
+    new_hashed_rt = hashlib.sha256(new_refresh.encode()).hexdigest()
+    new_rt = RefreshToken(user_id=user_id, hashed_token=new_hashed_rt, expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES))
     db.add(new_rt)
     await db.commit()
     
@@ -73,7 +80,9 @@ async def refresh_token_endpoint(req: TokenRefreshRequest, db: AsyncSession = De
 
 @router.post("/auth/logout")
 async def logout(req: TokenRefreshRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(RefreshToken).where(RefreshToken.token == req.refresh_token))
+    import hashlib
+    hashed_rt = hashlib.sha256(req.refresh_token.encode()).hexdigest()
+    result = await db.execute(select(RefreshToken).where(RefreshToken.hashed_token == hashed_rt))
     token = result.scalar_one_or_none()
     if token:
         token.revoked = True
@@ -87,6 +96,16 @@ async def request_otp(req: OTPRequest, db: AsyncSession = Depends(get_db)):
     if not user:
         # Mock behavior: return success even if user not found for security (no enumeration)
         return {"msg": "If email exists, OTP sent"}
+    
+    if user.otp_lock_until and user.otp_lock_until.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Account locked due to too many failed attempts")
+        
+    if user.last_otp_requested_at:
+        elapsed = (datetime.now(timezone.utc) - user.last_otp_requested_at.replace(tzinfo=timezone.utc)).total_seconds()
+        if elapsed < 60:
+            raise HTTPException(status_code=400, detail="Cooldown active")
+            
+    user.last_otp_requested_at = datetime.now(timezone.utc)
     
     import random
     if not settings.DEBUG:
@@ -106,30 +125,40 @@ async def verify_otp(req: OTPVerify, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid OTP")
         
+    if user.otp_lock_until and user.otp_lock_until.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Account locked due to too many failed attempts")
+        
     result = await db.execute(select(OTP).where(OTP.user_id == user.id, OTP.used == False).order_by(OTP.id.desc()))
     otp = result.scalar_one_or_none()
     
     if not otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
         
-    if otp.attempts >= 3:
-        raise HTTPException(status_code=400, detail="Too many attempts")
+    if otp.attempts >= 5:
+        user.otp_lock_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+        await db.commit()
+        raise HTTPException(status_code=400, detail="Account locked due to too many failed attempts")
         
     if datetime.now(timezone.utc).replace(tzinfo=None) > otp.expires_at.replace(tzinfo=None):
         raise HTTPException(status_code=400, detail="OTP expired")
         
     if not verify_password(req.code, otp.code):
         otp.attempts += 1
+        if otp.attempts >= 5:
+            user.otp_lock_until = datetime.now(timezone.utc) + timedelta(minutes=15)
         await db.commit()
         raise HTTPException(status_code=400, detail="Invalid OTP")
         
     otp.used = True
+    user.otp_lock_until = None
     await db.commit()
     
     access_token = create_access_token(user.id)
     refresh_token = create_refresh_token(user.id)
     
-    db_refresh = RefreshToken(user_id=user.id, token=refresh_token, expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES))
+    import hashlib
+    hashed_rt = hashlib.sha256(refresh_token.encode()).hexdigest()
+    db_refresh = RefreshToken(user_id=user.id, hashed_token=hashed_rt, expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES))
     db.add(db_refresh)
     await db.commit()
     
@@ -441,7 +470,9 @@ async def pair_elder(req: PairingRequest, db: AsyncSession = Depends(get_db)):
     
     access_token = create_access_token(pc.elder_id)
     refresh_token = create_refresh_token(pc.elder_id)
-    db_refresh = RefreshToken(user_id=pc.elder_id, token=refresh_token, expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES))
+    import hashlib
+    hashed_rt = hashlib.sha256(refresh_token.encode()).hexdigest()
+    db_refresh = RefreshToken(user_id=pc.elder_id, hashed_token=hashed_rt, expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES))
     db.add(db_refresh)
     await db.commit()
     

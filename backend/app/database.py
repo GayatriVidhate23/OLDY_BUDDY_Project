@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = os.environ.get("SECRET_KEY", "oldy-buddy-super-secret-key-change-in-production")
     JWT_SECRET_KEY: str = os.environ.get("JWT_SECRET_KEY", "")
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
     DATABASE_URL: str = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
     DEBUG: bool = False

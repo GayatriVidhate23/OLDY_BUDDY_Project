@@ -42,6 +42,8 @@ class User(Base):
     phone_number = Column(String, nullable=True)
     role = Column(Enum(UserRole), default=UserRole.ELDER, nullable=False)
     is_active = Column(Boolean, default=True)
+    otp_lock_until = Column(DateTime, nullable=True)
+    last_otp_requested_at = Column(DateTime, nullable=True)
 
 class ElderProfile(Base):
     __tablename__ = "elder_profiles"
@@ -144,7 +146,7 @@ class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True)
-    token = Column(String, unique=True, index=True, nullable=False)
+    hashed_token = Column(String, unique=True, index=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     revoked = Column(Boolean, default=False)
 

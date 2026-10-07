@@ -57,12 +57,42 @@ async def test_otp_flow(client: AsyncClient):
     req_res = await client.post("/api/auth/request-otp", json={"email": "otp@test.com"})
     assert req_res.status_code == 200
     
+    # Test cooldown
+    req_res_cooldown = await client.post("/api/auth/request-otp", json={"email": "otp@test.com"})
+    assert req_res_cooldown.status_code == 400
+    assert "Cooldown active" in req_res_cooldown.json()["detail"]
+    
+    # Test bad OTP
     ver_fail = await client.post("/api/auth/verify-otp", json={"email": "otp@test.com", "code": "999999"})
     assert ver_fail.status_code == 400
     
+    # Test valid OTP
     ver_ok = await client.post("/api/auth/verify-otp", json={"email": "otp@test.com", "code": "123456"})
     assert ver_ok.status_code == 200
     assert "access_token" in ver_ok.json()
+    
+    # Test replay (OTP already used)
+    ver_replay = await client.post("/api/auth/verify-otp", json={"email": "otp@test.com", "code": "123456"})
+    assert ver_replay.status_code == 400
+
+@pytest.mark.asyncio
+async def test_otp_lockout(client: AsyncClient):
+    await client.post("/api/auth/register", json={"email": "lock@test.com", "password": "StrongPassword1!", "role": "ELDER"})
+    await client.post("/api/auth/request-otp", json={"email": "lock@test.com"})
+    
+    # 5 bad attempts
+    for _ in range(5):
+        res = await client.post("/api/auth/verify-otp", json={"email": "lock@test.com", "code": "999999"})
+        assert res.status_code == 400
+        
+    # Account should be locked now
+    res_locked = await client.post("/api/auth/verify-otp", json={"email": "lock@test.com", "code": "123456"})
+    assert res_locked.status_code == 400
+    assert "locked" in res_locked.json()["detail"].lower()
+    
+    res_req_locked = await client.post("/api/auth/request-otp", json={"email": "lock@test.com"})
+    assert res_req_locked.status_code == 400
+    assert "locked" in res_req_locked.json()["detail"].lower()
 
 @pytest.mark.asyncio
 async def test_authorization(client: AsyncClient):
