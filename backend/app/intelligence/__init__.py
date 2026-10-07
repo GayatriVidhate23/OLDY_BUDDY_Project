@@ -34,7 +34,6 @@ from app.intelligence.conversation_service import (
     DEFAULT_MAX_TURNS_PER_SESSION,
 )
 from app.intelligence.hooks import on_emergency_intent
-from app.intelligence.routes import router as intelligence_router
 
 __all__ = [
     "STTProvider",
@@ -73,5 +72,4 @@ __all__ = [
     "DEFAULT_MAX_SESSIONS",
     "DEFAULT_MAX_TURNS_PER_SESSION",
     "on_emergency_intent",
-    "intelligence_router",
 ]
