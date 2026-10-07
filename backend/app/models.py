@@ -243,4 +243,36 @@ class Message(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     read_at = Column(DateTime, nullable=True)
 
+from sqlalchemy import UniqueConstraint
 
+class Reminder(Base):
+    __tablename__ = "reminders"
+    id = Column(Integer, primary_key=True, index=True)
+    elder_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    title = Column(String, nullable=False)
+    kind = Column(String, nullable=False)
+    recurrence = Column(String, nullable=False)
+    times = Column(JSON, default=list)
+    dates = Column(JSON, default=list)
+    start_date = Column(String, nullable=True)
+    end_date = Column(String, nullable=True)
+    max_attempts = Column(Integer, default=3)
+    retry_minutes = Column(Integer, default=15)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class Occurrence(Base):
+    __tablename__ = "occurrences"
+    id = Column(Integer, primary_key=True, index=True)
+    reminder_id = Column(Integer, ForeignKey("reminders.id"), index=True, nullable=False)
+    due_at = Column(DateTime, nullable=False)
+    status = Column(String, default="scheduled", index=True)
+    attempt_count = Column(Integer, default=0)
+    last_attempt_at = Column(DateTime, nullable=True)
+    next_attempt_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    cancellation_reason = Column(String, nullable=True)
+    
+    __table_args__ = (
+        UniqueConstraint('reminder_id', 'due_at', name='uix_reminder_due_at'),
+    )

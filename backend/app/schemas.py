@@ -315,3 +315,56 @@ class MessageResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# --- Module 4 Schemas ---
+class ReminderCreate(BaseModel):
+    title: str
+    kind: str
+    recurrence: str
+    times: List[str] = []
+    dates: List[str] = []
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    max_attempts: Optional[int] = 3
+    retry_minutes: Optional[int] = 15
+
+class ReminderUpdate(BaseModel):
+    title: Optional[str] = None
+    kind: Optional[str] = None
+    recurrence: Optional[str] = None
+    times: Optional[List[str]] = None
+    dates: Optional[List[str]] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    max_attempts: Optional[int] = None
+    retry_minutes: Optional[int] = None
+    is_active: Optional[bool] = None
+
+class ReminderResponse(BaseModel):
+    id: int
+    elder_id: int
+    title: str
+    kind: str
+    recurrence: str
+    times: List[str]
+    dates: List[str]
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    max_attempts: int
+    retry_minutes: int
+    is_active: bool
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class OccurrenceResponse(BaseModel):
+    id: int
+    reminder_id: int
+    due_at: datetime
+    status: str
+    attempt_count: int
+    last_attempt_at: Optional[datetime] = None
+    next_attempt_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    cancellation_reason: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
