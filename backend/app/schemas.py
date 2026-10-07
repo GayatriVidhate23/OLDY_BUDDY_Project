@@ -58,6 +58,23 @@ class ElderProfileBase(BaseModel):
     medical_info: Optional[Dict[str, Any]] = {}
     routines: Optional[Dict[str, Any]] = {}
     emergency_contact: Optional[str] = None
+    name: Optional[str] = None
+    preferred_name: Optional[str] = None
+    phone_e164: Optional[str] = None
+    language_code: Optional[str] = "en-IN"
+    tts_speaker: Optional[str] = None
+    timezone: Optional[str] = "Asia/Kolkata"
+
+    @field_validator("language_code")
+    @classmethod
+    def validate_language_code(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ["en-IN", "hi-IN", "ta-IN", "te-IN", "kn-IN", "mr-IN", "bn-IN", "gu-IN", "en-US"]:
+            raise ValueError("Unsupported language code")
+        return v
+    quiet_hours: Optional[str] = None
+    is_active: Optional[bool] = True
+    last_interaction_at: Optional[datetime] = None
+    last_checkin_at: Optional[datetime] = None
 
 class ElderProfileCreate(ElderProfileBase):
     user_id: int
@@ -69,6 +86,39 @@ class ElderProfileResponse(ElderProfileBase):
     id: int
     user_id: int
     model_config = ConfigDict(from_attributes=True)
+
+class ElderRoutineBase(BaseModel):
+    wake_time: str
+    sleep_time: str
+    meal_times: list[str] = []
+    checkin_times: list[str] = []
+
+class EmergencyContactBase(BaseModel):
+    name: str
+    phone_e164: str
+
+class EmergencyContactResponse(EmergencyContactBase):
+    id: int
+    priority: int
+
+class EmergencyContactOrder(BaseModel):
+    contact_ids: list[int]
+
+class ElderConsentBase(BaseModel):
+    kind: str
+    version: Optional[str] = None
+    evidence: Optional[str] = None
+
+class ElderConsentResponse(ElderConsentBase):
+    id: int
+    revoked_at: Optional[datetime] = None
+
+class PairingCodeResponse(BaseModel):
+    code: str
+    expires_at: datetime
+
+class PairingRequest(BaseModel):
+    code: str
 
 # --- Activity Schemas ---
 class ActivityBase(BaseModel):
@@ -145,14 +195,32 @@ class CallRecordResponse(BaseModel):
     status: str
     model_config = ConfigDict(from_attributes=True)
 
+class SOSResponse(BaseModel):
+    alert_id: Optional[int] = None
+    msg: str
+
+class VerifySOS(BaseModel):
+    safe: bool
+
 # --- Alert Schemas ---
 class AlertResponse(BaseModel):
     id: int
     elder_id: int
     severity: str
-    message: str
-    is_resolved: bool
-    timestamp: datetime
+    message: Optional[str] = None
+    title: Optional[str] = None
+    status: Optional[str] = "open"
+    is_resolved: Optional[bool] = False
+    timestamp: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    resolution: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+class EventResponse(BaseModel):
+    id: int
+    event_type: str
+    occurred_at: datetime
+    payload: dict
     model_config = ConfigDict(from_attributes=True)
 
 # --- Dashboard Overview Schema ---
@@ -177,6 +245,12 @@ class ConversationRequest(BaseModel):
 class ConversationResponse(BaseModel):
     reply: str
     timestamp: datetime
+
+class ChatRequest(BaseModel):
+    message: str
+
+class ChatResponse(BaseModel):
+    reply: str
 
 # --- Notification & Device Schemas ---
 class DeviceRegisterRequest(BaseModel):

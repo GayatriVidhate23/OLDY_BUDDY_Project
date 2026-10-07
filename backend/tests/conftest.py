@@ -1,5 +1,7 @@
 import pytest
 import pytest_asyncio
+import os
+os.environ["DEBUG"] = "true"
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.database import Base, get_db

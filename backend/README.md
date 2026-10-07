@@ -1,13 +1,14 @@
 # Oldy Buddy Backend
 
-Minimal FastAPI MVP Backend for Oldy Buddy Elder Care Companion.
+FastAPI Backend Architecture for Oldy Buddy Elder Care Companion.
 
 ## Features
 - JWT Authentication & Refresh Tokens
 - Role-based Authorization (ELDER, CAREGIVER, FAMILY, ADMIN)
-- Elder Profiles & Medical Info
+- Elder Profiles, Medical Info & User Relationships
 - Activities, Reminders, Check-ins & Emergency SOS Alerts
-- AI Assistant Conversation API
+- Voice Agent & Telephony Mocking
+- Decision Engine & Multi-Channel Notifications (Module 6 Outbox Pattern)
 - Health Check Endpoint
 
 ## Quick Start

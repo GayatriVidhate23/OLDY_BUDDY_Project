@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
     DATABASE_URL: str = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./oldy_buddy.db")
     REDIS_URL: str = "redis://localhost:6379/0"
+    DEBUG: bool = False
+    OTP_SECRET: str = os.environ.get("OTP_SECRET", "oldy-buddy-otp-secret")
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
@@ -36,4 +38,3 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-

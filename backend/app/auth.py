@@ -127,3 +127,7 @@ async def verify_elder_access(
         )
     return True
 
+async def has_consent(db: AsyncSession, elder_id: int, kind: str) -> bool:
+    from app.models import ElderConsent
+    result = await db.execute(select(ElderConsent).where(ElderConsent.elder_id == elder_id, ElderConsent.kind == kind, ElderConsent.revoked_at == None))
+    return result.scalar_one_or_none() is not None
