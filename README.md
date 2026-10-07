@@ -4,7 +4,7 @@ Oldy Buddy is an integrated elderly care companion platform powered by Python Fa
 
 ---
 
-## 🏗️ Platform Architecture
+##  Platform Architecture
 
 One Elder = One Source of Truth across 3 connected interfaces:
 
@@ -25,7 +25,7 @@ One Elder = One Source of Truth across 3 connected interfaces:
 
 ---
 
-## 📁 Repository Structure
+##  Repository Structure
 
 ```
 OLDY_BUDDY_Project/
@@ -68,7 +68,7 @@ OLDY_BUDDY_Project/
 
 ---
 
-## ⚡ Quick Start
+##  Quick Start
 
 ### 1. Run Backend API
 ```bash
@@ -90,7 +90,7 @@ npm run dashboard
 
 ---
 
-## 🧪 Running Tests
+##  Running Tests
 
 To run the backend test suite:
 ```bash
