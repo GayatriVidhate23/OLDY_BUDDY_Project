@@ -27,12 +27,12 @@ async def entrypoint(ctx: JobContext):
     logger.info(f"Connecting to room: {ctx.room.name}")
     await ctx.connect()
 
-    # 1. VAD Tuning for elderly users
+    # 1. VAD Tuning for elderly users (Less sensitive to prevent agent from stopping randomly)
     vad_plugin = silero.VAD.load(
-        min_speech_duration=0.1,
-        min_silence_duration=1.3,
+        min_speech_duration=0.2,       # Require longer speech to trigger
+        min_silence_duration=2.5,      # Wait longer before assuming user is done (prevents cutting off)
         prefix_padding_duration=0.5,
-        activation_threshold=0.05,
+        activation_threshold=0.4,      # Less sensitive to background noise/breathing
     )
 
     # 2. STT Setup (Sarvam)
@@ -110,7 +110,7 @@ async def entrypoint(ctx: JobContext):
     system_prompt = (
         "Aap Oldy Buddy hain, ek caring, polite aur elder-friendly companion app jo buzurgon ki madad karta hai.\n\n"
         "RULES FOR CONVERSATION:\n"
-        "1. Responses hamesha chote, saaf, aasan aur shant bhasha mein hone chahiye.\n"
+        "1. Responses hamesha chote, saaf, aasan aur shant bhasha mein hone chahiye. Ek asali insaan ki tarah naturally aur continuously baat karein.\n"
         "2. User jis bhasha mein bole (Hindi, Marathi, English), aap usi bhasha mein politely jawab dein.\n"
         "3. User ko kabhi zor se bolne ke liye mat kahein.\n"
         "4. Agar audio saf na sunai de ya unclear ho, toh politely kahein:\n"
